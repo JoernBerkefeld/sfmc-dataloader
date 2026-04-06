@@ -1,0 +1,92 @@
+{
+    "editor.codeActionsOnSave": {
+        "source.fixAll.eslint": "explicit",
+        "source.fixAll.markdownlint": "explicit"
+    },
+    "editor.formatOnSave": true,
+    "files.associations": {
+        "*.ssjs": "javascript",
+        "*.html": "ampscript"
+    },
+    "files.eol": "\n",
+    "js/ts.implicitProjectConfig.checkJs": true,
+    "javascript.validate.enable": true,
+    "markdown.extension.italic.indicator": "_",
+    "markdown.extension.list.indentationSize": "adaptive",
+    "markdown.extension.toc.levels": "2..6",
+    "markdown.extension.toc.orderedList": false,
+    "markdown.extension.toc.slugifyMode": "github",
+    "markdown.extension.tableFormatter.enabled": false,
+    "sql-formatter.indent": "    ",
+    "sql-formatter.uppercase": true,
+    "[html]": {
+        "editor.defaultFormatter": "FiB.beautyAmp"
+    },
+    "[javascript]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[json]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[jsonc]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[markdown]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[typescript]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "markdown-toc.orderedList": true,
+    "markdown-toc.insertAnchor": true,
+    "outline.showProperties": false,
+    "outline.showVariables": false,
+    "breadcrumbs.showVariables": false,
+    "breadcrumbs.showProperties": false,
+    "githubIssues.issueBranchTitle": "feature/${issueNumber}-${sanitizedIssueTitle}",
+    "githubIssues.queries": [
+        {
+            "label": "My Issues",
+            "query": "default"
+        },
+        {
+            "label": "New Issues",
+            "query": "no:assignee state:open repo:${owner}/${repository} sort:created-desc"
+        },
+        {
+            "label": "Created By Me",
+            "query": "author:${user} state:open repo:${owner}/${repository} sort:created-desc"
+        }
+    ],
+    "vsicons.associations.files": [
+        {
+            "icon": "apex",
+            "languages": [
+                { "ids": "ampscript", "defaultExtension": "amp" },
+                { "ids": "AMPscript", "defaultExtension": "amp" }
+            ],
+            "light": true,
+            "format": "FileFormat.svg"
+        }
+    ],
+    "workbench.colorCustomizations": {
+        "activityBar.activeBackground": "#ba0f2a",
+        "activityBar.background": "#ba0f2a",
+        "activityBar.foreground": "#e7e7e7",
+        "activityBar.inactiveForeground": "#e7e7e799",
+        "activityBarBadge.background": "#28b10e",
+        "activityBarBadge.foreground": "#e7e7e7",
+        "commandCenter.border": "#e7e7e799",
+        "sash.hoverBorder": "#ba0f2a",
+        "statusBar.background": "#8b0b1f",
+        "statusBar.foreground": "#e7e7e7",
+        "statusBarItem.hoverBackground": "#ba0f2a",
+        "statusBarItem.remoteBackground": "#8b0b1f",
+        "statusBarItem.remoteForeground": "#e7e7e7",
+        "titleBar.activeBackground": "#8b0b1f",
+        "titleBar.activeForeground": "#e7e7e7",
+        "titleBar.inactiveBackground": "#8b0b1f99",
+        "titleBar.inactiveForeground": "#e7e7e799"
+    },
+    "peacock.color": "#8b0b1f"
+}

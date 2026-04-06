@@ -1,0 +1,132 @@
+# Custom tests for mcdl
+#
+name: 'Code Testing'
+
+on:
+    push:
+        branches: [main, develop, hotfix]
+    pull_request:
+        # The branches below must be a subset of the branches above
+        branches: [main, develop, hotfix]
+
+jobs:
+    lintandTest18:
+        name: lint & test w/ node v18
+        runs-on: ubuntu-latest
+        permissions:
+            actions: read
+            contents: read
+            security-events: write
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 18.18.2
+                  registry-url: https://registry.npmjs.org/
+
+            - run: npm ci --ignore-scripts
+
+            - run: npm run lint
+
+            # Assuming code passes, run tests
+            - name: Run mcdl-tests
+              run: npm run test
+    lintandTest19:
+        name: lint & test w/ node v19
+        runs-on: ubuntu-latest
+        permissions:
+            actions: read
+            contents: read
+            security-events: write
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 19
+                  registry-url: https://registry.npmjs.org/
+
+            - run: npm ci --ignore-scripts
+
+            - run: npm run lint
+
+            # Assuming code passes, run tests
+            - name: Run mcdl-tests
+              run: npm run test
+    lintandTest20:
+        name: lint & test w/ node v20
+        runs-on: ubuntu-latest
+        permissions:
+            actions: read
+            contents: read
+            security-events: write
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  registry-url: https://registry.npmjs.org/
+
+            - run: npm ci --ignore-scripts
+
+            - run: npm run lint
+
+            # Assuming code passes, run tests
+            - name: Run mcdl-tests
+              run: npm run test
+    lintandTest21:
+        name: lint & test w/ node v21
+        runs-on: ubuntu-latest
+        permissions:
+            actions: read
+            contents: read
+            security-events: write
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 21
+                  registry-url: https://registry.npmjs.org/
+
+            - run: npm ci --ignore-scripts
+
+            - run: npm run lint
+
+            # Assuming code passes, run tests
+            - name: Run mcdl-tests
+              run: npm run test
+    lintandTest22:
+        name: lint & test w/ node v22
+        runs-on: ubuntu-latest
+        permissions:
+            actions: read
+            contents: read
+            security-events: write
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  registry-url: https://registry.npmjs.org/
+
+            - run: npm ci --ignore-scripts
+
+            - run: npm run lint
+
+            # Assuming code passes, run tests
+            - name: Run mcdl-tests
+              run: npm run test
