@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { crossBuImport } from '../lib/cross-bu-import.mjs';
+import { buildExportBasename, parseExportBasename } from '../lib/filename.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
@@ -25,7 +26,7 @@ const mcdevAuth = {
     },
 };
 
-describe('crossBuImport', () => {
+describe('crossBuImport — API mode', () => {
     it('is exported as a function', () => {
         assert.strictEqual(typeof crossBuImport, 'function');
     });
@@ -76,5 +77,39 @@ describe('crossBuImport', () => {
             /NonExistent/
         );
         await fs.rm(tmpDir, { recursive: true, force: true });
+    });
+});
+
+describe('crossBuImport — file mode', () => {
+    it('rejects when a target BU is unknown', async () => {
+        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-file-test-'));
+        const fakeCsv = path.join(tmpDir, buildExportBasename('My_DE', '2026-04-08T10-00-00.000Z', 'csv'));
+        await fs.writeFile(fakeCsv, 'col1,col2\nval1,val2\n', 'utf8');
+        await assert.rejects(
+            () =>
+                crossBuImport({
+                    projectRoot: tmpDir,
+                    mcdevrc,
+                    mcdevAuth,
+                    filePaths: [fakeCsv],
+                    targets: [{ credential: 'MyCred', bu: 'NonExistent' }],
+                    format: 'csv',
+                    api: 'async',
+                    mode: 'upsert',
+                    clearBeforeImport: false,
+                    acceptRiskFlag: false,
+                    isTTY: false,
+                }),
+            /NonExistent/
+        );
+        await fs.rm(tmpDir, { recursive: true, force: true });
+    });
+
+    it('derives DE key from +MCDATA+ filename correctly', () => {
+        // Verify the filename parsing that crossBuImport uses in file mode.
+        // Pure unit test — no network calls.
+        const basename = buildExportBasename('Contact_DE', '2026-04-08T10-00-00.000Z', 'csv');
+        const { customerKey } = parseExportBasename(basename);
+        assert.equal(customerKey, 'Contact_DE');
     });
 });

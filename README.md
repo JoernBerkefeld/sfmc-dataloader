@@ -57,15 +57,34 @@ Import from explicit paths (DE key is recovered from the `+MCDATA+` filename):
 mcdata import MyCred/MyBU --file ./data/MyCred/MyBU/encoded%2Bkey+MCDATA+2026-04-06T12-00-00.000Z.csv
 ```
 
-### Import — one source BU into multiple target BUs
+### Import — one source BU into multiple target BUs (API mode)
 
-Use `--from` (one source) and `--to` (repeatable targets) for a cross-BU import:
+Use `--from` (one source) and `--to` (repeatable targets) for a cross-BU import where rows are fetched live from the source BU:
 
 ```bash
 mcdata import --from MyCred/Dev --to MyCred/QA --to MyCred/Prod --de Contact_DE
 ```
 
 Before the import starts you will be offered the option to export the current data from each target BU as a timestamped backup. A timestamped download file is also written to each target BU's data directory so there is a traceable record of exactly what was imported.
+
+### Import — local export files into multiple target BUs (file mode)
+
+Use `--to` (repeatable targets) and `--file` (repeatable file paths) to push previously exported data files to multiple BUs without connecting to a source BU. The DE customer key is derived from each filename automatically:
+
+```bash
+mcdata import --to MyCred/QA --to MyCred/Prod \
+  --file ./data/MyCred/Dev/Contact_DE+MCDATA+2026-04-08T10-00-00.000Z.csv
+```
+
+Multiple files can be supplied to push several DEs in one command:
+
+```bash
+mcdata import --to MyCred/QA --to MyCred/Prod \
+  --file ./data/MyCred/Dev/Contact_DE+MCDATA+2026-04-08T10-00-00.000Z.csv \
+  --file ./data/MyCred/Dev/Order_DE+MCDATA+2026-04-08T10-00-00.000Z.csv
+```
+
+A timestamped download file is written to each target BU's data directory, giving a traceable snapshot of exactly what was imported.
 
 ### Clear all rows before import
 
@@ -92,8 +111,8 @@ Interactive: type `YES` when prompted. In CI, add `--i-accept-clear-data-risk` a
 | `--format` | `csv` (default), `tsv`, or `json` |
 | `--api` | `async` (default) or `sync` |
 | `--mode` | `upsert` (default), `insert` and `update` require `--api sync` |
-| `--from <cred>/<bu>` | Export: source BU (repeatable). Import: single source BU (use with `--to`) |
-| `--to <cred>/<bu>` | Import: target BU (repeatable for multiple targets) |
+| `--from <cred>/<bu>` | Export: source BU (repeatable). Import API mode: single source BU (use with `--to` and `--de`) |
+| `--to <cred>/<bu>` | Import: target BU (repeatable). API mode: use with `--from`/`--de`. File mode: use with `--file` (no `--from` needed) |
 | `--clear-before-import` | SOAP `ClearData` before REST import |
 | `--i-accept-clear-data-risk` | Non-interactive consent for clear |
 
