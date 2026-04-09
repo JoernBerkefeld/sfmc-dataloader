@@ -5,7 +5,7 @@ import {
     reverseFilterIllegalFilenames,
     buildExportBasename,
     parseExportBasename,
-    MCDATA_SENTINEL,
+    MCDATA_SEGMENT,
 } from '../lib/filename.mjs';
 
 describe('filename', () => {
@@ -15,19 +15,35 @@ describe('filename', () => {
         assert.equal(reverseFilterIllegalFilenames(f), raw);
     });
 
-    it('does not produce +MCDATA+ inside encoded key segment', () => {
+    it('uses .mcdata. segment between key and timestamp', () => {
         const key = 'a+b';
         const base = buildExportBasename(key, '2026-04-06T12-00-00.000Z', 'csv');
-        assert.ok(!base.split(MCDATA_SENTINEL)[0].includes(MCDATA_SENTINEL));
-        assert.ok(base.includes(MCDATA_SENTINEL));
+        assert.ok(base.includes(MCDATA_SEGMENT));
+        assert.ok(!base.split(MCDATA_SEGMENT)[0].includes('mcdata'));
     });
 
-    it('parseExportBasename recovers customer key', () => {
+    it('parseExportBasename recovers customer key (timestamped)', () => {
         const key = 'My_DE_Key';
         const ts = '2026-04-06T12-00-00.000Z';
         const base = buildExportBasename(key, ts, 'csv');
-        const { customerKey, ext } = parseExportBasename(base);
+        const { customerKey, ext, timestampPart } = parseExportBasename(base);
         assert.equal(customerKey, key);
         assert.equal(ext, 'csv');
+        assert.equal(timestampPart, ts);
+    });
+
+    it('buildExportBasename --git produces stable basename', () => {
+        const base = buildExportBasename('MyDE', 'ignored', 'csv', true);
+        assert.equal(base, `${filterIllegalFilenames('MyDE')}.mcdata.csv`);
+        const { customerKey, timestampPart } = parseExportBasename(base);
+        assert.equal(customerKey, 'MyDE');
+        assert.equal(timestampPart, '');
+    });
+
+    it('parseExportBasename allows dots inside timestamp segment', () => {
+        const enc = filterIllegalFilenames('K');
+        const stem = `${enc}.mcdata.part.two`;
+        const { timestampPart } = parseExportBasename(`${stem}.csv`);
+        assert.equal(timestampPart, 'part.two');
     });
 });

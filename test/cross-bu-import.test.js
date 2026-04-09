@@ -44,7 +44,6 @@ describe('crossBuImport — API mode', () => {
                     targets: [{ credential: 'MyCred', bu: 'QA' }],
                     deKeys: ['DE1'],
                     format: 'csv',
-                    api: 'async',
                     mode: 'upsert',
                     clearBeforeImport: false,
                     acceptRiskFlag: false,
@@ -68,7 +67,6 @@ describe('crossBuImport — API mode', () => {
                     targets: [{ credential: 'MyCred', bu: 'NonExistent' }],
                     deKeys: ['DE1'],
                     format: 'csv',
-                    api: 'async',
                     mode: 'upsert',
                     clearBeforeImport: false,
                     acceptRiskFlag: false,
@@ -94,7 +92,6 @@ describe('crossBuImport — file mode', () => {
                     filePaths: [fakeCsv],
                     targets: [{ credential: 'MyCred', bu: 'NonExistent' }],
                     format: 'csv',
-                    api: 'async',
                     mode: 'upsert',
                     clearBeforeImport: false,
                     acceptRiskFlag: false,
@@ -105,9 +102,7 @@ describe('crossBuImport — file mode', () => {
         await fs.rm(tmpDir, { recursive: true, force: true });
     });
 
-    it('derives DE key from +MCDATA+ filename correctly', () => {
-        // Verify the filename parsing that crossBuImport uses in file mode.
-        // Pure unit test — no network calls.
+    it('derives DE key from .mcdata. filename correctly', () => {
         const basename = buildExportBasename('Contact_DE', '2026-04-08T10-00-00.000Z', 'csv');
         const { customerKey } = parseExportBasename(basename);
         assert.equal(customerKey, 'Contact_DE');

@@ -25,6 +25,13 @@ describe('mcdata CLI', () => {
         assert.ok(r.stdout.includes('--to'), 'help should mention --to flag');
         assert.ok(r.stdout.includes('--file'), 'help should mention --file flag');
     });
+
+    it('help mentions --git and import --mode', () => {
+        const r = spawnSync(process.execPath, [bin, '-h'], { encoding: 'utf8' });
+        assert.equal(r.status, 0);
+        assert.ok(r.stdout.includes('--git'));
+        assert.ok(r.stdout.includes('--mode'));
+    });
 });
 
 describe('mcdata CLI — import --to + --file validation', () => {

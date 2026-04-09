@@ -3,32 +3,26 @@ import { describe, it } from 'node:test';
 import { fetchAllRowObjects, serializeRows } from '../lib/export-de.mjs';
 
 describe('fetchAllRowObjects', () => {
-    it('paginates until hasMoreRows is false', async () => {
-        let page = 0;
+    it('uses getBulk with page size 2500 and maps items to flat rows', async () => {
+        const calls = [];
         const sdk = {
             rest: {
-                get: async (urlPath) => {
-                    assert.ok(urlPath.includes('rowset'));
-                    page++;
-                    if (page === 1) {
-                        return {
-                            items: [
-                                {
-                                    keys: { pk: '1' },
-                                    values: { a: 'x' },
-                                },
-                            ],
-                            hasMoreRows: true,
-                        };
-                    }
+                getBulk: async (path, pageSize) => {
+                    calls.push({ path, pageSize });
+                    assert.ok(path.includes('rowset'));
+                    assert.equal(pageSize, 2500);
                     return {
                         items: [
+                            {
+                                keys: { pk: '1' },
+                                values: { a: 'x' },
+                            },
                             {
                                 keys: { pk: '2' },
                                 values: { a: 'y' },
                             },
                         ],
-                        hasMoreRows: false,
+                        count: 2,
                     };
                 },
             },
@@ -38,6 +32,7 @@ describe('fetchAllRowObjects', () => {
             { pk: '1', a: 'x' },
             { pk: '2', a: 'y' },
         ]);
+        assert.equal(calls.length, 1);
     });
 });
 
