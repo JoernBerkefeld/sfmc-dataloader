@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -6,8 +7,15 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(__dirname, '..', 'bin', 'mcdata.mjs');
+const packageJson = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
 describe('mcdata CLI', () => {
+    it('prints bare semver with --version', () => {
+        const r = spawnSync(process.execPath, [bin, '--version'], { encoding: 'utf8' });
+        assert.equal(r.status, 0);
+        assert.equal(r.stdout.trim(), packageJson.version);
+    });
+
     it('prints help with -h', () => {
         const r = spawnSync(process.execPath, [bin, '-h'], { encoding: 'utf8' });
         assert.equal(r.status, 0);
