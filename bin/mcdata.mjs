@@ -3,7 +3,7 @@ import { main } from '../lib/cli.mjs';
 
 main(process.argv)
     .then((code) => process.exit(typeof code === 'number' ? code : 0))
-    .catch((err) => {
-        console.error(err);
+    .catch((ex) => {
+        console.error(ex);
         process.exit(1);
     });

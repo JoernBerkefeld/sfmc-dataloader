@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { chunkItemsForPayload, MAX_OBJECTS_PER_BATCH, DEFAULT_MAX_BODY_BYTES } from '../lib/batch.mjs';
+import {
+    chunkItemsForPayload,
+    MAX_OBJECTS_PER_BATCH,
+    DEFAULT_MAX_BODY_BYTES,
+} from '../lib/batch.mjs';
 
 describe('chunkItemsForPayload', () => {
     it('respects max object count', () => {

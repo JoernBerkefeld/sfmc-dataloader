@@ -39,6 +39,6 @@ describe('fetchAllRowObjects', () => {
 describe('serializeRows', () => {
     it('writes CSV with BOM', () => {
         const s = serializeRows([{ a: '1' }], 'csv', false);
-        assert.ok(s.startsWith('\ufeff'));
+        assert.ok(s.startsWith('\uFEFF'));
     });
 });

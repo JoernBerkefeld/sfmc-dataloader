@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { resolveImportRoute, asyncDataExtensionRowsPath, rowsetGetPath } from '../lib/import-routes.mjs';
+import {
+    resolveImportRoute,
+    asyncDataExtensionRowsPath,
+    rowsetGetPath,
+} from '../lib/import-routes.mjs';
 
 describe('import routes', () => {
     it('async rows path uses async dataextensions', () => {

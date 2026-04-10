@@ -1,6 +1,6 @@
 {
     "name": "sfmc-dataloader",
-    "version": "2.0.2",
+    "version": "2.0.0",
     "description": "SFMC Data Loader CLI (mcdata) to export and import Marketing Cloud Data Extension rows using mcdev project config and sfmc-sdk",
     "author": "Jörn Berkefeld <joern.berkefeld@gmail.com>",
     "license": "MIT",
@@ -11,14 +11,7 @@
     "bugs": {
         "url": "https://github.com/JoernBerkefeld/sfmc-dataloader/issues"
     },
-    "keywords": [
-        "sfmc",
-        "marketing-cloud",
-        "data-extension",
-        "mcdev",
-        "cli",
-        "exacttarget"
-    ],
+    "keywords": ["sfmc", "marketing-cloud", "data-extension", "mcdev", "cli", "exacttarget"],
     "type": "module",
     "bin": {
         "mcdata": "./bin/mcdata.mjs"
@@ -27,11 +20,7 @@
     "exports": {
         ".": "./lib/index.mjs"
     },
-    "files": [
-        "bin",
-        "lib",
-        "README.md"
-    ],
+    "files": ["bin", "lib", "README.md"],
     "engines": {
         "node": "^20.19.0 || ^22.13.0 || >=24"
     },
@@ -44,6 +33,20 @@
         "sfmc-sdk": "3.0.3"
     },
     "scripts": {
-        "test": "node --test test/**/*.test.js"
+        "test": "node --test test/**/*.test.js",
+        "lint": "eslint .",
+        "lint:fix": "eslint --fix .",
+        "format": "prettier --write .",
+        "format:check": "prettier --check ."
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "eslint": "^10.1.0",
+        "eslint-config-prettier": "^10.1.8",
+        "eslint-plugin-jsdoc": "^62.0.0",
+        "eslint-plugin-prettier": "^5.5.0",
+        "eslint-plugin-unicorn": "^64.0.0",
+        "globals": "^17.4.0",
+        "prettier": "^3.8.1"
     }
 }

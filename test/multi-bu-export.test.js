@@ -50,7 +50,7 @@ describe('multiBuExport', () => {
                     deKeys: ['DE1'],
                     format: 'csv',
                 }),
-            /UnknownCred/
+            /UnknownCred/,
         );
         await fs.rm(tmpDir, { recursive: true, force: true });
     });
@@ -67,7 +67,7 @@ describe('multiBuExport', () => {
                     deKeys: ['DE1'],
                     format: 'csv',
                 }),
-            /NonExistent/
+            /NonExistent/,
         );
         await fs.rm(tmpDir, { recursive: true, force: true });
     });

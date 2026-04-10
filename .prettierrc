@@ -2,7 +2,6 @@
     "tabWidth": 4,
     "printWidth": 100,
     "singleQuote": true,
-    "trailingComma": "es5",
     "overrides": [
         {
             "files": "*.json",
@@ -11,16 +10,9 @@
             }
         },
         {
-            "files": "package.json",
+            "files": "package.json|package-lock.json",
             "options": {
                 "printWidth": 40
-            }
-        },
-        {
-            "files": "*.ssjs",
-            "options": {
-                "parser": "babel",
-                "trailingComma": "none"
             }
         },
         {

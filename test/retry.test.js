@@ -16,7 +16,7 @@ describe('withRetry429', () => {
                 }
                 return 'ok';
             },
-            { maxAttempts: 3 }
+            { maxAttempts: 3 },
         );
         assert.equal(result, 'ok');
         assert.equal(n, 2);
@@ -26,13 +26,16 @@ describe('withRetry429', () => {
         let n = 0;
         await assert.rejects(
             () =>
-                withRetry429(async () => {
-                    n++;
-                    throw new RestError({
-                        response: { status: 429, headers: {}, data: {} },
-                    });
-                }, { maxAttempts: 2 }),
-            RestError
+                withRetry429(
+                    async () => {
+                        n++;
+                        throw new RestError({
+                            response: { status: 429, headers: {}, data: {} },
+                        });
+                    },
+                    { maxAttempts: 2 },
+                ),
+            RestError,
         );
         assert.equal(n, 2);
     });

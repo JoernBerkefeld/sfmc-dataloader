@@ -24,7 +24,7 @@ describe('config', () => {
                         },
                     },
                 },
-            })
+            }),
         );
         await fs.writeFile(
             path.join(tmp, '.mcdev-auth.json'),
@@ -34,7 +34,7 @@ describe('config', () => {
                     client_secret: 'secret',
                     auth_url: 'https://mcabcdefghijklmnop12345678.auth.marketingcloudapis.com/',
                 },
-            })
+            }),
         );
     });
 

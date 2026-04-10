@@ -47,7 +47,7 @@ describe('mcdata CLI — import --to + --file validation', () => {
         const r = spawnSync(
             process.execPath,
             [bin, 'import', 'MyCred/MyBU', '--to', 'MyCred/QA', '--file', 'some.csv'],
-            { encoding: 'utf8' }
+            { encoding: 'utf8' },
         );
         assert.notEqual(r.status, 0);
         assert.ok(r.stderr.includes('positional') || r.stderr.includes('Cannot mix'));
@@ -57,7 +57,7 @@ describe('mcdata CLI — import --to + --file validation', () => {
         const r = spawnSync(
             process.execPath,
             [bin, 'import', '--to', 'MyCred/QA', '--file', 'some.csv', '--de', 'DE1'],
-            { encoding: 'utf8' }
+            { encoding: 'utf8' },
         );
         assert.notEqual(r.status, 0);
         assert.ok(r.stderr.includes('--de') || r.stderr.includes('Cannot mix'));
@@ -67,7 +67,7 @@ describe('mcdata CLI — import --to + --file validation', () => {
         const r = spawnSync(
             process.execPath,
             [bin, 'import', '--from', 'MyCred/Dev', '--to', 'MyCred/QA', '--file', 'some.csv'],
-            { encoding: 'utf8' }
+            { encoding: 'utf8' },
         );
         assert.notEqual(r.status, 0);
         assert.ok(r.stderr.includes('--file'));

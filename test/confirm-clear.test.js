@@ -31,7 +31,7 @@ describe('confirmClearBeforeImport', () => {
                     acceptRiskFlag: false,
                     isTTY: false,
                 }),
-            /non-interactive/
+            /non-interactive/,
         );
     });
 
@@ -60,7 +60,10 @@ describe('confirmClearBeforeImport', () => {
         const msg = text();
         assert.ok(msg.includes('DE_A'), 'should list DE_A');
         assert.ok(msg.includes('DE_B'), 'should list DE_B');
-        assert.ok(!msg.includes('Business Unit'), 'single-BU mode should not mention Business Unit count');
+        assert.ok(
+            !msg.includes('Business Unit'),
+            'single-BU mode should not mention Business Unit count',
+        );
     });
 
     it('shows multi-BU warning when targets array is provided', async () => {
@@ -97,7 +100,7 @@ describe('confirmClearBeforeImport', () => {
                     stdin: input,
                     stdout: output,
                 }),
-            /Aborted/
+            /Aborted/,
         );
     });
 });

@@ -49,7 +49,7 @@ describe('crossBuImport — API mode', () => {
                     acceptRiskFlag: false,
                     isTTY: false,
                 }),
-            /UnknownCred/
+            /UnknownCred/,
         );
         await fs.rm(tmpDir, { recursive: true, force: true });
     });
@@ -72,7 +72,7 @@ describe('crossBuImport — API mode', () => {
                     acceptRiskFlag: false,
                     isTTY: false,
                 }),
-            /NonExistent/
+            /NonExistent/,
         );
         await fs.rm(tmpDir, { recursive: true, force: true });
     });
@@ -81,7 +81,10 @@ describe('crossBuImport — API mode', () => {
 describe('crossBuImport — file mode', () => {
     it('rejects when a target BU is unknown', async () => {
         const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-file-test-'));
-        const fakeCsv = path.join(tmpDir, buildExportBasename('My_DE', '2026-04-08T10-00-00.000Z', 'csv'));
+        const fakeCsv = path.join(
+            tmpDir,
+            buildExportBasename('My_DE', '2026-04-08T10-00-00.000Z', 'csv'),
+        );
         await fs.writeFile(fakeCsv, 'col1,col2\nval1,val2\n', 'utf8');
         await assert.rejects(
             () =>
@@ -97,7 +100,7 @@ describe('crossBuImport — file mode', () => {
                     acceptRiskFlag: false,
                     isTTY: false,
                 }),
-            /NonExistent/
+            /NonExistent/,
         );
         await fs.rm(tmpDir, { recursive: true, force: true });
     });

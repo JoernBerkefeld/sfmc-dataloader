@@ -101,16 +101,16 @@ Interactive: type `YES` when prompted. In CI, add `--i-accept-clear-data-risk` a
 
 ## Options
 
-| Option | Description |
-|--------|-------------|
-| `-p, --project` | Project root (default: cwd) |
-| `--format` | `csv` (default), `tsv`, or `json` |
-| `--git` | Stable export filenames: `<key>.mcdata.<ext>` (no timestamp segment) |
-| `--mode` | `upsert` (default) or `insert` — async bulk REST API only |
-| `--from <cred>/<bu>` | Export: source BU (repeatable). Import API mode: single source BU (use with `--to` and `--de`) |
-| `--to <cred>/<bu>` | Import: target BU (repeatable). API mode: use with `--from`/`--de`. File mode: use with `--file` (no `--from` needed) |
-| `--clear-before-import` | SOAP `ClearData` before REST import |
-| `--i-accept-clear-data-risk` | Non-interactive consent for clear |
+| Option                       | Description                                                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `-p, --project`              | Project root (default: cwd)                                                                                           |
+| `--format`                   | `csv` (default), `tsv`, or `json`                                                                                     |
+| `--git`                      | Stable export filenames: `<key>.mcdata.<ext>` (no timestamp segment)                                                  |
+| `--mode`                     | `upsert` (default) or `insert` — async bulk REST API only                                                             |
+| `--from <cred>/<bu>`         | Export: source BU (repeatable). Import API mode: single source BU (use with `--to` and `--de`)                        |
+| `--to <cred>/<bu>`           | Import: target BU (repeatable). API mode: use with `--from`/`--de`. File mode: use with `--file` (no `--from` needed) |
+| `--clear-before-import`      | SOAP `ClearData` before REST import                                                                                   |
+| `--i-accept-clear-data-risk` | Non-interactive consent for clear                                                                                     |
 
 Log lines use paths **relative** to the project root (POSIX-style, `./…`) and include **row counts** where applicable.
 
