@@ -1,6 +1,6 @@
 {
     "name": "sfmc-dataloader",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "description": "SFMC Data Loader CLI (mcdata) to export and import Marketing Cloud Data Extension rows using mcdev project config and sfmc-sdk",
     "author": "Jörn Berkefeld <joern.berkefeld@gmail.com>",
     "license": "MIT",
@@ -11,7 +11,14 @@
     "bugs": {
         "url": "https://github.com/JoernBerkefeld/sfmc-dataloader/issues"
     },
-    "keywords": ["sfmc", "marketing-cloud", "data-extension", "mcdev", "cli", "exacttarget"],
+    "keywords": [
+        "sfmc",
+        "marketing-cloud",
+        "data-extension",
+        "mcdev",
+        "cli",
+        "exacttarget"
+    ],
     "type": "module",
     "bin": {
         "mcdata": "./bin/mcdata.mjs"
@@ -20,7 +27,11 @@
     "exports": {
         ".": "./lib/index.mjs"
     },
-    "files": ["bin", "lib", "README.md"],
+    "files": [
+        "bin",
+        "lib",
+        "README.md"
+    ],
     "engines": {
         "node": "^20.19.0 || ^22.13.0 || >=24"
     },
