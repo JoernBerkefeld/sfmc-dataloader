@@ -41,4 +41,23 @@ describe('serializeRows', () => {
         const s = serializeRows([{ a: '1' }], 'csv', false);
         assert.ok(s.startsWith('\uFEFF'));
     });
+
+    it('writes CSV with quoted fields', () => {
+        const s = serializeRows([{ col1: 'val1', col2: 'val2' }], 'csv', false);
+        assert.ok(s.includes('"col1"'), 'CSV headers should be quoted');
+        assert.ok(s.includes('"val1"'), 'CSV values should be quoted');
+    });
+
+    it('writes TSV without quoted fields', () => {
+        const s = serializeRows([{ col1: 'val1', col2: 'val2' }], 'tsv', false);
+        assert.ok(!s.includes('"col1"'), 'TSV headers should not be quoted');
+        assert.ok(!s.includes('"val1"'), 'TSV values should not be quoted');
+        assert.ok(s.includes('col1\tcol2'), 'TSV should have tab-separated headers');
+        assert.ok(s.includes('val1\tval2'), 'TSV should have tab-separated values');
+    });
+
+    it('writes TSV with BOM', () => {
+        const s = serializeRows([{ a: '1' }], 'tsv', false);
+        assert.ok(s.startsWith('\uFEFF'), 'TSV should start with BOM');
+    });
 });

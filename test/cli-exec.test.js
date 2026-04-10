@@ -40,6 +40,26 @@ describe('mcdata CLI', () => {
         assert.ok(r.stdout.includes('--git'));
         assert.ok(r.stdout.includes('--mode'));
     });
+
+    it('help mentions --debug with log file info', () => {
+        const r = spawnSync(process.execPath, [bin, '-h'], { encoding: 'utf8' });
+        assert.equal(r.status, 0);
+        assert.ok(r.stdout.includes('--debug'), 'help should mention --debug flag');
+        assert.ok(r.stdout.includes('./logs/data/'), 'help should mention log directory');
+    });
+
+    it('help indicates format is auto-detected for imports', () => {
+        const r = spawnSync(process.execPath, [bin, '-h'], { encoding: 'utf8' });
+        assert.equal(r.status, 0);
+        assert.ok(
+            r.stdout.includes('auto-detected from file extension'),
+            'help should mention format auto-detection',
+        );
+        assert.ok(
+            r.stdout.includes('ignored for imports'),
+            'help should indicate --format is ignored for imports',
+        );
+    });
 });
 
 describe('mcdata CLI — import --to + --file validation', () => {
