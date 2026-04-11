@@ -60,6 +60,19 @@ describe('mcdata CLI', () => {
             'help should indicate --format is ignored for imports',
         );
     });
+
+    it('help mentions --backup-before-import and --no-backup-before-import', () => {
+        const r = spawnSync(process.execPath, [bin, '-h'], { encoding: 'utf8' });
+        assert.equal(r.status, 0);
+        assert.ok(
+            r.stdout.includes('--backup-before-import'),
+            'help should mention --backup-before-import',
+        );
+        assert.ok(
+            r.stdout.includes('--no-backup-before-import'),
+            'help should mention --no-backup-before-import',
+        );
+    });
 });
 
 describe('mcdata CLI — import --to + --file validation', () => {
@@ -91,5 +104,27 @@ describe('mcdata CLI — import --to + --file validation', () => {
         );
         assert.notEqual(r.status, 0);
         assert.ok(r.stderr.includes('--file'));
+    });
+});
+
+describe('mcdata CLI — backup flags', () => {
+    it('accepts --backup-before-import without error (validation only)', () => {
+        const r = spawnSync(process.execPath, [bin, 'import', '--backup-before-import', '--help'], {
+            encoding: 'utf8',
+        });
+        assert.equal(r.status, 0, 'should not fail when --backup-before-import is passed with -h');
+    });
+
+    it('accepts --no-backup-before-import without error (validation only)', () => {
+        const r = spawnSync(
+            process.execPath,
+            [bin, 'import', '--no-backup-before-import', '--help'],
+            { encoding: 'utf8' },
+        );
+        assert.equal(
+            r.status,
+            0,
+            'should not fail when --no-backup-before-import is passed with -h',
+        );
     });
 });

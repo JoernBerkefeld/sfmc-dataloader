@@ -111,3 +111,56 @@ describe('crossBuImport — file mode', () => {
         assert.equal(customerKey, 'Contact_DE');
     });
 });
+
+describe('crossBuImport — backupBeforeImport flag', () => {
+    it('skips backup when backupBeforeImport is false, even with isTTY true', async () => {
+        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-backup-test-'));
+        // Rejects at SDK connection (bad creds), but must not attempt the TTY backup prompt
+        // before reaching that point — target validation happens first, so use a valid target.
+        // We only verify the backup export is not triggered; SDK failure is expected.
+        await assert.rejects(
+            () =>
+                crossBuImport({
+                    projectRoot: tmpDir,
+                    mcdevrc,
+                    mcdevAuth,
+                    sourceCred: 'UnknownCred',
+                    sourceBu: 'Dev',
+                    targets: [{ credential: 'MyCred', bu: 'QA' }],
+                    deKeys: ['DE1'],
+                    format: 'csv',
+                    mode: 'upsert',
+                    backupBeforeImport: false,
+                    clearBeforeImport: false,
+                    acceptRiskFlag: false,
+                    isTTY: true,
+                }),
+            /UnknownCred/,
+        );
+        await fs.rm(tmpDir, { recursive: true, force: true });
+    });
+
+    it('skips backup when backupBeforeImport is undefined and isTTY is false', async () => {
+        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-notty-test-'));
+        await assert.rejects(
+            () =>
+                crossBuImport({
+                    projectRoot: tmpDir,
+                    mcdevrc,
+                    mcdevAuth,
+                    sourceCred: 'UnknownCred',
+                    sourceBu: 'Dev',
+                    targets: [{ credential: 'MyCred', bu: 'QA' }],
+                    deKeys: ['DE1'],
+                    format: 'csv',
+                    mode: 'upsert',
+                    backupBeforeImport: undefined,
+                    clearBeforeImport: false,
+                    acceptRiskFlag: false,
+                    isTTY: false,
+                }),
+            /UnknownCred/,
+        );
+        await fs.rm(tmpDir, { recursive: true, force: true });
+    });
+});

@@ -1,6 +1,6 @@
 # sfmc-dataloader
 
-Command-line tool **`mcdata`** to export and import Salesforce Marketing Cloud Data Extension rows using the same project files as [mcdev](https://github.com/Accenture/sfmc-devtools) (`.mcdevrc.json`, `.mcdev-auth.json`) and [sfmc-sdk](https://www.npmjs.com/package/sfmc-sdk) for REST/SOAP.
+Command-line tool **`mcdata`** to export and import **Salesforce Marketing Cloud Engagement** Data Extension rows using the same project files as [mcdev](https://github.com/Accenture/sfmc-devtools) (`.mcdevrc.json`, `.mcdev-auth.json`) and [sfmc-sdk](https://www.npmjs.com/package/sfmc-sdk) for REST/SOAP.
 
 ## Requirements
 
@@ -41,12 +41,12 @@ Creates one file per BU/DE combination using the same `.mcdata.` naming rules.
 ### Import — single BU
 
 ```bash
-mcdata import MyCred/MyBU --de MyDE_CustomerKey --format csv --mode upsert
+mcdata import MyCred/MyBU --de MyDE_CustomerKey --mode upsert
 ```
 
 Imports use the **asynchronous** bulk row API only: `POST` for `--mode insert`, `PUT` for `--mode upsert` (same endpoint path).
 
-Resolves the latest matching export file under `./data/MyCred/MyBU/` for that DE key.
+Resolves the latest matching export file under `./data/MyCred/MyBU/` for that DE key. The file format is detected automatically from the file extension (`.csv`, `.tsv`, `.json`).
 
 Import from explicit paths (the DE key is taken from the `.mcdata.` basename):
 
@@ -56,8 +56,8 @@ mcdata import MyCred/MyBU --file ./data/MyCred/MyBU/encoded%2Bkey.mcdata.2026-04
 
 #### Upsert vs insert
 
-- **Upsert** follows the platform’s usual behaviour: update when a primary key matches, otherwise insert. For Data Extensions **without** a primary key, upsert may not behave as expected; prefer **`--mode insert`** for those.
-- **Insert** always adds new rows. Running import twice with insert can create **duplicate** rows if the same file is applied again—use upsert when keys are defined and you need idempotent runs.
+- **Upsert** follows the platform's usual behaviour: update when a primary key matches, otherwise insert. For Data Extensions **without** a primary key, upsert **will fail**; use **`--mode insert`** for those.
+- **Insert** always adds new rows. Running import twice with insert can create **duplicate** rows if the same file is applied again—use upsert when primary keys are defined and you need to ensure repeated runs always have the same outcome.
 
 ### Import — one source BU into multiple target BUs (API mode)
 
@@ -67,7 +67,7 @@ Use `--from` (one source) and `--to` (repeatable targets) for a cross-BU import 
 mcdata import --from MyCred/Dev --to MyCred/QA --to MyCred/Prod --de Contact_DE
 ```
 
-Before the import starts you will be offered the option to export the current data from each target BU as a timestamped backup. A download file is also written to each target BU's data directory so there is a traceable record of exactly what was imported.
+An optional pre-import backup exports current target BU data as **timestamped** files (backup filenames always include the timestamp, regardless of `--git`). Use `--backup-before-import` to run the backup without a prompt (CI-safe), or `--no-backup-before-import` to skip it entirely. When neither flag is provided the CLI prompts interactively (TTY only). A snapshot file is also written to each target BU's data directory as a record of what was imported.
 
 ### Import — local export files into multiple target BUs (file mode)
 
@@ -79,6 +79,20 @@ mcdata import --to MyCred/QA --to MyCred/Prod \
 ```
 
 Multiple files can be supplied to push several DEs in one command. Pass **`--git`** on export if you rely on stable `*.mcdata.<ext>` names for snapshots in this flow.
+
+### Backup target DE before import
+
+Use `--backup-before-import` on any import command (single-BU or cross-BU) to export a timestamped snapshot of the current target DE rows before the import runs. The backup filename always includes a timestamp regardless of whether `--git` is set.
+
+```bash
+mcdata import MyCred/MyBU --de MyKey --backup-before-import
+```
+
+In CI, combine with `--no-backup-before-import` to suppress any TTY prompt:
+
+```bash
+mcdata import MyCred/MyBU --de MyKey --no-backup-before-import
+```
 
 ### Clear all rows before import
 
@@ -101,16 +115,18 @@ Interactive: type `YES` when prompted. In CI, add `--i-accept-clear-data-risk` a
 
 ## Options
 
-| Option                       | Description                                                                                                           |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `-p, --project`              | Project root (default: cwd)                                                                                           |
-| `--format`                   | `csv` (default), `tsv`, or `json`                                                                                     |
-| `--git`                      | Stable export filenames: `<key>.mcdata.<ext>` (no timestamp segment)                                                  |
-| `--mode`                     | `upsert` (default) or `insert` — async bulk REST API only                                                             |
-| `--from <cred>/<bu>`         | Export: source BU (repeatable). Import API mode: single source BU (use with `--to` and `--de`)                        |
-| `--to <cred>/<bu>`           | Import: target BU (repeatable). API mode: use with `--from`/`--de`. File mode: use with `--file` (no `--from` needed) |
-| `--clear-before-import`      | SOAP `ClearData` before REST import                                                                                   |
-| `--i-accept-clear-data-risk` | Non-interactive consent for clear                                                                                     |
+| Option                        | Description                                                                                                           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `-p, --project`               | Project root (default: cwd)                                                                                           |
+| `--format`                    | `csv` (default), `tsv`, or `json` — **export only**; import format is detected from the file extension               |
+| `--git`                       | Stable export filenames: `<key>.mcdata.<ext>` (no timestamp segment)                                                  |
+| `--mode`                      | `upsert` (default) or `insert` — async bulk REST API only                                                             |
+| `--from <cred>/<bu>`          | Export: source BU (repeatable). Import API mode: single source BU (use with `--to` and `--de`)                        |
+| `--to <cred>/<bu>`            | Import: target BU (repeatable). API mode: use with `--from`/`--de`. File mode: use with `--file` (no `--from` needed) |
+| `--backup-before-import`      | Export target DE data as a timestamped backup before import (no prompt; always timestamped)                           |
+| `--no-backup-before-import`   | Skip the backup prompt even in interactive (TTY) sessions                                                             |
+| `--clear-before-import`       | SOAP `ClearData` before REST import                                                                                   |
+| `--i-accept-clear-data-risk`  | Non-interactive consent for clear                                                                                     |
 
 Log lines use paths **relative** to the project root (POSIX-style, `./…`) and include **row counts** where applicable.
 
