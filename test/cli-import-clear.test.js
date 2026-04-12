@@ -2,24 +2,8 @@
  * Integration-style tests for the skip-clear-if-empty logic in the import command.
  * Uses the public `main()` entry point with a fully mocked SDK and filesystem.
  */
-import { describe, it, mock, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-
-// Capture console output without leaking to the test runner's stdout/stderr.
-function captureConsole() {
-    const messages = { error: [], warn: [] };
-    const origError = console.error.bind(console);
-    const origWarn = console.warn.bind(console);
-    console.error = (...args) => messages.error.push(args.join(' '));
-    console.warn = (...args) => messages.warn.push(args.join(' '));
-    return {
-        messages,
-        restore() {
-            console.error = origError;
-            console.warn = origWarn;
-        },
-    };
-}
 
 describe('cli import — clear-before-import skip when DE is empty', () => {
     it('skips clearDataExtensionRows when row count before import is 0', async () => {
