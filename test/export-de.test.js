@@ -115,10 +115,7 @@ describe('fetchDataExtensionFieldNames', () => {
 
     it('returns empty array when Results missing or empty', async () => {
         assert.deepEqual(
-            await fetchDataExtensionFieldNames(
-                { retrieve: async () => ({ Results: [] }) },
-                'K',
-            ),
+            await fetchDataExtensionFieldNames({ retrieve: async () => ({ Results: [] }) }, 'K'),
             [],
         );
         assert.deepEqual(
