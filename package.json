@@ -1,6 +1,6 @@
 {
     "name": "sfmc-dataloader",
-    "version": "2.4.0",
+    "version": "2.4.1",
     "description": "SFMC Data Loader CLI (mcdata) to export and import Marketing Cloud Data Extension rows using mcdev project config and sfmc-sdk",
     "author": "Jörn Berkefeld <joern.berkefeld@gmail.com>",
     "license": "MIT",
