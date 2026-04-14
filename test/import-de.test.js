@@ -17,12 +17,13 @@ describe('importRowsForDe', () => {
             },
         };
         const rows = Array.from({ length: 3 }, (_, i) => ({ id: String(i) }));
-        const n = await importRowsForDe(sdk, {
+        const result = await importRowsForDe(sdk, {
             deKey: 'K',
             rows,
             mode: 'upsert',
         });
-        assert.equal(n, 3);
+        assert.equal(result.count, 3);
+        assert.deepEqual(result.requestIds, [null]);
         assert.equal(calls.length, 1);
         assert.equal(calls[0].n, 3);
         assert.ok(calls[0].path.includes('async'));
@@ -34,14 +35,15 @@ describe('importRowsForDe', () => {
                 put: async () => {
                     throw new Error('unexpected put');
                 },
-                post: async () => ({}),
+                post: async () => ({ requestId: 'req-123' }),
             },
         };
-        const n = await importRowsForDe(sdk, {
+        const result = await importRowsForDe(sdk, {
             deKey: 'K',
             rows: [{ a: 1 }],
             mode: 'insert',
         });
-        assert.equal(n, 1);
+        assert.equal(result.count, 1);
+        assert.deepEqual(result.requestIds, ['req-123']);
     });
 });
