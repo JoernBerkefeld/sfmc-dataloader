@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { fetchAllRowObjects, serializeRows } from '../lib/export-de.mjs';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {
+    fetchAllRowObjects,
+    fetchDataExtensionFieldNames,
+    serializeRows,
+    exportDataExtensionToFile,
+} from '../lib/export-de.mjs';
 
 describe('fetchAllRowObjects', () => {
     it('uses getBulk with page size 2500 and maps items to flat rows', async () => {
@@ -59,5 +67,106 @@ describe('serializeRows', () => {
     it('writes TSV with BOM', () => {
         const s = serializeRows([{ a: '1' }], 'tsv', false);
         assert.ok(s.startsWith('\uFEFF'), 'TSV should start with BOM');
+    });
+
+    it('writes CSV header only when rows empty and columns provided', () => {
+        const s = serializeRows([], 'csv', false, ['col1', 'col2']);
+        assert.ok(s.startsWith('\uFEFF'));
+        const lines = s.trimEnd().split(/\r?\n/);
+        assert.equal(lines.length, 1);
+        assert.ok(lines[0].includes('"col1"'));
+        assert.ok(lines[0].includes('"col2"'));
+    });
+
+    it('writes TSV header only when rows empty and columns provided', () => {
+        const s = serializeRows([], 'tsv', false, ['h1', 'h2']);
+        assert.ok(s.startsWith('\uFEFF'));
+        const lines = s.trimEnd().split(/\r?\n/);
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /h1\th2/);
+    });
+
+    it('JSON ignores columns when rows empty', () => {
+        const s = serializeRows([], 'json', false, ['a', 'b']);
+        assert.equal(s.trim(), '[]');
+    });
+});
+
+describe('fetchDataExtensionFieldNames', () => {
+    it('sorts by Ordinal and returns Names', async () => {
+        const soap = {
+            retrieve: async (type, props, opts) => {
+                assert.equal(type, 'DataExtensionField');
+                assert.deepEqual(props, ['Name', 'Ordinal']);
+                assert.equal(opts.filter.leftOperand, 'DataExtension.CustomerKey');
+                assert.equal(opts.filter.operator, 'equals');
+                assert.equal(opts.filter.rightOperand, 'MY_DE');
+                return {
+                    Results: [
+                        { Name: 'second', Ordinal: '2' },
+                        { Name: 'first', Ordinal: '1' },
+                    ],
+                };
+            },
+        };
+        const names = await fetchDataExtensionFieldNames(soap, 'MY_DE');
+        assert.deepEqual(names, ['first', 'second']);
+    });
+
+    it('returns empty array when Results missing or empty', async () => {
+        assert.deepEqual(
+            await fetchDataExtensionFieldNames(
+                { retrieve: async () => ({ Results: [] }) },
+                'K',
+            ),
+            [],
+        );
+        assert.deepEqual(
+            await fetchDataExtensionFieldNames({ retrieve: async () => ({}) }, 'K'),
+            [],
+        );
+    });
+});
+
+describe('exportDataExtensionToFile', () => {
+    it('writes header-only CSV for empty DE when SOAP returns fields', async () => {
+        const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-export-empty-'));
+        try {
+            const sdk = {
+                rest: {
+                    getBulk: async () => {
+                        throw new Error('Could not find an array to iterate over');
+                    },
+                },
+                soap: {
+                    retrieve: async (type, props) => {
+                        assert.equal(type, 'DataExtensionField');
+                        assert.deepEqual(props, ['Name', 'Ordinal']);
+                        return {
+                            Results: [
+                                { Name: 'Email', Ordinal: '1' },
+                                { Name: 'Name', Ordinal: '2' },
+                            ],
+                        };
+                    },
+                },
+            };
+            const { path: outPath, rowCount } = await exportDataExtensionToFile(sdk, {
+                projectRoot: tmp,
+                credentialName: 'cred',
+                buName: 'bu',
+                deKey: 'DE_KEY',
+                format: 'csv',
+            });
+            assert.equal(rowCount, 0);
+            const body = await fs.readFile(outPath, 'utf8');
+            assert.ok(body.startsWith('\uFEFF'));
+            assert.ok(body.includes('"Email"'));
+            assert.ok(body.includes('"Name"'));
+            const lines = body.trimEnd().split(/\r?\n/);
+            assert.equal(lines.length, 1);
+        } finally {
+            await fs.rm(tmp, { recursive: true, force: true });
+        }
     });
 });

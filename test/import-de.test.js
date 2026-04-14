@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
-import { importRowsForDe } from '../lib/import-de.mjs';
+import { describe, it, before, after } from 'node:test';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { importRowsForDe, importFromFile } from '../lib/import-de.mjs';
 
 describe('importRowsForDe', () => {
     it('calls put for upsert in chunks', async () => {
@@ -45,5 +48,96 @@ describe('importRowsForDe', () => {
         });
         assert.equal(result.count, 1);
         assert.deepEqual(result.requestIds, ['req-123']);
+    });
+});
+
+describe('importFromFile', () => {
+    let tmp;
+    before(async () => {
+        tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-import-'));
+    });
+    after(async () => {
+        await fs.rm(tmp, { recursive: true, force: true });
+    });
+
+    const stubSdk = {
+        rest: {
+            put: async () => {
+                throw new Error('should not call API when file has no rows');
+            },
+            post: async () => {
+                throw new Error('should not call API when file has no rows');
+            },
+        },
+    };
+
+    it('rejects empty CSV', async () => {
+        const p = path.join(tmp, 'empty.csv');
+        await fs.writeFile(p, '', 'utf8');
+        await assert.rejects(
+            () =>
+                importFromFile(stubSdk, {
+                    filePath: p,
+                    deKey: 'K',
+                    mode: 'upsert',
+                }),
+            /no data rows/,
+        );
+    });
+
+    it('rejects BOM-only CSV', async () => {
+        const p = path.join(tmp, 'bom.csv');
+        await fs.writeFile(p, '\uFEFF', 'utf8');
+        await assert.rejects(
+            () =>
+                importFromFile(stubSdk, {
+                    filePath: p,
+                    deKey: 'K',
+                    mode: 'upsert',
+                }),
+            /no data rows/,
+        );
+    });
+
+    it('rejects header-only CSV', async () => {
+        const p = path.join(tmp, 'header.csv');
+        await fs.writeFile(p, 'a,b,c\n', 'utf8');
+        await assert.rejects(
+            () =>
+                importFromFile(stubSdk, {
+                    filePath: p,
+                    deKey: 'K',
+                    mode: 'upsert',
+                }),
+            /no data rows/,
+        );
+    });
+
+    it('rejects header-only TSV', async () => {
+        const p = path.join(tmp, 'header.tsv');
+        await fs.writeFile(p, 'a\tb\tc\n', 'utf8');
+        await assert.rejects(
+            () =>
+                importFromFile(stubSdk, {
+                    filePath: p,
+                    deKey: 'K',
+                    mode: 'upsert',
+                }),
+            /no data rows/,
+        );
+    });
+
+    it('rejects empty JSON array', async () => {
+        const p = path.join(tmp, 'empty.json');
+        await fs.writeFile(p, '[]', 'utf8');
+        await assert.rejects(
+            () =>
+                importFromFile(stubSdk, {
+                    filePath: p,
+                    deKey: 'K',
+                    mode: 'upsert',
+                }),
+            /no data rows/,
+        );
     });
 });
