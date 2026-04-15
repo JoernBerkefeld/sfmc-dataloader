@@ -1,12 +1,57 @@
 # sfmc-dataloader
 
-Command-line tool **`mcdata`** to export and import **Salesforce Marketing Cloud Engagement** Data Extension rows using the same project files as [mcdev](https://github.com/Accenture/sfmc-devtools) (`.mcdevrc.json`, `.mcdev-auth.json`) and [sfmc-sdk](https://www.npmjs.com/package/sfmc-sdk) for REST/SOAP.
+Command-line tool **`mcdata`** to export and import **Salesforce Marketing Cloud Engagement** Data Extension rows using [sfmc-sdk](https://www.npmjs.com/package/sfmc-sdk) for REST/SOAP.
+
+Works **standalone** — no mcdev installation required — and also integrates with existing [mcdev](https://github.com/Accenture/sfmc-devtools) projects.
+
+## Config files
+
+| File pair | When to use |
+|---|---|
+| `.mcdevrc.json` + `.mcdev-auth.json` | Existing mcdev projects — **always wins** when both pairs present |
+| `.mcdatarc.json` + `.mcdata-auth.json` | Standalone setup; created by `mcdata init` |
+
+**Precedence:** When `.mcdevrc.json` and `.mcdev-auth.json` both exist they are loaded; any mcdata files are ignored (a warning is printed to stderr). Both file pairs share the same logical shape (`credentials.<name>.businessUnits`), so all commands work with either layout.
+
+## Standalone setup with `mcdata init`
+
+If you don't have an existing mcdev project, run:
+
+```bash
+mcdata init
+```
+
+The interactive wizard collects:
+
+1. Credential name (e.g. `MyOrg`)
+2. Installed-package **Client ID**
+3. Installed-package **Client Secret**
+4. **Auth URL** (e.g. `https://<tenantsubdomain>.auth.marketingcloudapis.com/`)
+5. **Enterprise MID** (parent account ID)
+
+It fetches your Business Unit list via the SOAP API, writes `.mcdatarc.json` and `.mcdata-auth.json`, and adds the auth file to `.gitignore`.
+
+### Non-interactive / CI mode
+
+Pass all five flags to skip prompts:
+
+```bash
+mcdata init \
+  --credential MyOrg \
+  --client-id  <id> \
+  --client-secret <secret> \
+  --auth-url  https://<tenantsubdomain>.auth.marketingcloudapis.com/ \
+  --enterprise-id <eid> \
+  --yes
+```
+
+Use `--yes` to overwrite existing `.mcdatarc.json` / `.mcdata-auth.json` without confirmation.
 
 ## Requirements
 
 - Node.js `^20.19.0 || ^22.13.0 || >=24` (aligned with `sfmc-sdk`)
-- A mcdev-style project with credentials on disk
-- Peer: `mcdev` `>=7` (declare alongside your project tooling)
+- An SFMC installed package with Data Extension access
+- **Optional:** `mcdev` `>=7` — listed in `optionalDependencies`; install globally if you also use mcdev for other metadata types
 
 ## Install
 
@@ -128,7 +173,7 @@ Interactive: type `YES` when prompted. In CI, add `--i-accept-clear-data-risk` a
 | `--clear-before-import`       | SOAP `ClearData` before REST import                                                                                   |
 | `--i-accept-clear-data-risk`  | Non-interactive consent for clear                                                                                     |
 
-Log lines use paths **relative** to the project root (POSIX-style, `./…`) and include **row counts** where applicable.
+Log lines include **row counts** and show file paths as **absolute paths in double-quotes** (e.g. `"C:\data\MyCred\DEV\Contact.mcdata.csv"`) so they are clickable in VS Code's integrated terminal.
 
 ## License
 

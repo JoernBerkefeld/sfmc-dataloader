@@ -128,3 +128,28 @@ describe('mcdata CLI — backup flags', () => {
         );
     });
 });
+
+describe('mcdata CLI - init subcommand', () => {
+    it('help includes mcdata init usage line', () => {
+        const r = spawnSync(process.execPath, [bin, '-h'], { encoding: 'utf8' });
+        assert.equal(r.status, 0);
+        assert.ok(r.stdout.includes('mcdata init'), 'help should mention mcdata init');
+    });
+
+    it('help includes --enterprise-id flag', () => {
+        const r = spawnSync(process.execPath, [bin, '-h'], { encoding: 'utf8' });
+        assert.equal(r.status, 0);
+        assert.ok(r.stdout.includes('--enterprise-id'), 'help should mention --enterprise-id');
+    });
+
+    it('help includes --credential flag', () => {
+        const r = spawnSync(process.execPath, [bin, '-h'], { encoding: 'utf8' });
+        assert.equal(r.status, 0);
+        assert.ok(r.stdout.includes('--credential'), 'help should mention --credential');
+    });
+
+    it('init subcommand exits non-zero in non-interactive mode without required flags', () => {
+        const r = spawnSync(process.execPath, [bin, 'init'], { encoding: 'utf8' });
+        assert.notEqual(r.status, 0, 'init without flags should fail in non-interactive mode');
+    });
+});

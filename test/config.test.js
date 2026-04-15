@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {
     loadMcdevProject,
+    loadProjectConfig,
+    WARN_MCDATA_SUPERSEDED,
     parseCredBu,
     resolveCredentialAndMid,
     buildSdkAuthObject,
@@ -64,6 +66,94 @@ describe('config', () => {
 
     it('parseCredBu rejects invalid', () => {
         assert.throws(() => parseCredBu('nope'), /credential/);
+    });
+});
+
+describe('loadProjectConfig', () => {
+    it('loads mcdata-only pair', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        try {
+            await fs.writeFile(
+                path.join(dir, '.mcdatarc.json'),
+                JSON.stringify({
+                    credentials: {
+                        R1: { eid: 1, businessUnits: { _ParentBU_: 1, DEV: 2 } },
+                    },
+                }),
+            );
+            await fs.writeFile(
+                path.join(dir, '.mcdata-auth.json'),
+                JSON.stringify({
+                    R1: {
+                        client_id: 'id',
+                        client_secret: 'secret',
+                        auth_url: 'https://mcabcdefghijklmnop12345678.auth.marketingcloudapis.com/',
+                    },
+                }),
+            );
+            const { mcdevrc, mcdevAuth } = loadProjectConfig(dir, { stderr: () => {} });
+            assert.equal(mcdevrc.credentials.R1.businessUnits.DEV, 2);
+            assert.equal(mcdevAuth.R1.client_id, 'id');
+        } finally {
+            await fs.rm(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('warns when mcdev pair wins and mcdata files exist', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        try {
+            await fs.writeFile(
+                path.join(dir, '.mcdevrc.json'),
+                JSON.stringify({
+                    credentials: { R1: { businessUnits: { DEV: 123456 } } },
+                }),
+            );
+            await fs.writeFile(
+                path.join(dir, '.mcdev-auth.json'),
+                JSON.stringify({
+                    R1: {
+                        client_id: 'id',
+                        client_secret: 'secret',
+                        auth_url: 'https://mcabcdefghijklmnop12345678.auth.marketingcloudapis.com/',
+                    },
+                }),
+            );
+            await fs.writeFile(path.join(dir, '.mcdatarc.json'), '{}');
+            const warnings = [];
+            loadProjectConfig(dir, { stderr: (msg) => warnings.push(msg) });
+            assert.ok(warnings.includes(WARN_MCDATA_SUPERSEDED));
+        } finally {
+            await fs.rm(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('throws on incomplete mcdev pair (rc only)', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        try {
+            await fs.writeFile(path.join(dir, '.mcdevrc.json'), '{}');
+            assert.throws(() => loadProjectConfig(dir), /Missing.*mcdev-auth/);
+        } finally {
+            await fs.rm(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('throws on incomplete mcdata pair (rc only)', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        try {
+            await fs.writeFile(path.join(dir, '.mcdatarc.json'), '{}');
+            assert.throws(() => loadProjectConfig(dir), /Missing.*mcdata-auth/);
+        } finally {
+            await fs.rm(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('throws when no config present', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        try {
+            assert.throws(() => loadProjectConfig(dir), /No project config found/);
+        } finally {
+            await fs.rm(dir, { recursive: true, force: true });
+        }
     });
 });
 

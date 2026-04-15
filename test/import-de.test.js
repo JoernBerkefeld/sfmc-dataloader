@@ -3,6 +3,7 @@ import { describe, it, before, after } from 'node:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { RestError } from 'sfmc-sdk/util';
 import { importRowsForDe, importFromFile } from '../lib/import-de.mjs';
 
 describe('importRowsForDe', () => {
@@ -30,6 +31,33 @@ describe('importRowsForDe', () => {
         assert.equal(calls.length, 1);
         assert.equal(calls[0].n, 3);
         assert.ok(calls[0].path.includes('async'));
+    });
+
+    it('throws readable message when PUT returns 400 with resultMessages', async () => {
+        const sdk = {
+            rest: {
+                put: async () => {
+                    throw new RestError({
+                        response: {
+                            status: 400,
+                            headers: {},
+                            data: {
+                                resultMessages: [
+                                    { message: 'Primary key field required for upsert operations' },
+                                ],
+                            },
+                        },
+                    });
+                },
+                post: async () => {
+                    throw new Error('unexpected');
+                },
+            },
+        };
+        await assert.rejects(
+            () => importRowsForDe(sdk, { deKey: 'MyDE', rows: [{ a: 1 }], mode: 'upsert' }),
+            /Primary key field required for upsert/,
+        );
     });
 
     it('calls post for insert', async () => {
