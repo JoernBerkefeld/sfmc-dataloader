@@ -175,6 +175,14 @@ Interactive: type `YES` when prompted. In CI, add `--i-accept-clear-data-risk` a
 
 Log lines include **row counts** and show file paths as **absolute paths in double-quotes** (e.g. `"C:\data\MyCred\DEV\Contact.mcdata.csv"`) so they are clickable in VS Code's integrated terminal.
 
+## Programmatic API (Node.js)
+
+Import from `sfmc-dataloader` for use in other tools (for example the **SFMC Data Loader** VS Code extension):
+
+| Export | Purpose |
+|--------|---------|
+| `fetchDeList(projectRoot, credential, bu)` | Returns all Data Extension **names** and **customer keys** for one BU via SOAP `retrieveBulk` (pagination handled by **sfmc-sdk**). Not a CLI command — intended for in-process callers that already have mcdev/mcdata config on disk. |
+
 ## License
 
 MIT — Author: Jörn Berkefeld
