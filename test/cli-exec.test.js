@@ -48,6 +48,12 @@ describe('mcdata CLI', () => {
         assert.ok(r.stdout.includes('./logs/data/'), 'help should mention log directory');
     });
 
+    it('help mentions --max-rows-per-file', () => {
+        const r = spawnSync(process.execPath, [bin, '-h'], { encoding: 'utf8' });
+        assert.equal(r.status, 0);
+        assert.ok(r.stdout.includes('--max-rows-per-file'));
+    });
+
     it('help indicates format is auto-detected for imports', () => {
         const r = spawnSync(process.execPath, [bin, '-h'], { encoding: 'utf8' });
         assert.equal(r.status, 0);

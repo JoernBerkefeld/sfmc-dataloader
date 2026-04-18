@@ -131,7 +131,7 @@ describe('exportDataExtensionToFile', () => {
         try {
             const sdk = {
                 rest: {
-                    getBulk: async () => {
+                    async *getBulkPages() {
                         throw new Error('Could not find an array to iterate over');
                     },
                 },
@@ -148,7 +148,7 @@ describe('exportDataExtensionToFile', () => {
                     },
                 },
             };
-            const { path: outPath, rowCount } = await exportDataExtensionToFile(sdk, {
+            const { paths, rowCount } = await exportDataExtensionToFile(sdk, {
                 projectRoot: tmp,
                 credentialName: 'cred',
                 buName: 'bu',
@@ -156,12 +156,94 @@ describe('exportDataExtensionToFile', () => {
                 format: 'csv',
             });
             assert.equal(rowCount, 0);
-            const body = await fs.readFile(outPath, 'utf8');
+            assert.equal(paths.length, 1);
+            const body = await fs.readFile(paths[0], 'utf8');
             assert.ok(body.startsWith('\uFEFF'));
             assert.ok(body.includes('"Email"'));
             assert.ok(body.includes('"Name"'));
             const lines = body.trimEnd().split(/\r?\n/);
             assert.equal(lines.length, 1);
+        } finally {
+            await fs.rm(tmp, { recursive: true, force: true });
+        }
+    });
+
+    it('streams CSV rows via getBulkPages and returns paths + rowCount', async () => {
+        const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-export-stream-'));
+        try {
+            const sdk = {
+                rest: {
+                    async *getBulkPages(url, pageSize) {
+                        assert.ok(url.includes('rowset'));
+                        assert.equal(pageSize, 2500);
+                        yield {
+                            iteratorField: 'items',
+                            pageItems: [
+                                { keys: { pk: '1' }, values: { a: 'x' } },
+                                { keys: { pk: '2' }, values: { a: 'y' } },
+                            ],
+                            page: 1,
+                            totalPages: 1,
+                            totalCount: 2,
+                            responseBatch: { items: [], count: 2 },
+                        };
+                    },
+                },
+                soap: {
+                    retrieve: async () => ({ Results: [] }),
+                },
+            };
+            const { paths, rowCount } = await exportDataExtensionToFile(sdk, {
+                projectRoot: tmp,
+                credentialName: 'cred',
+                buName: 'bu',
+                deKey: 'DE_KEY',
+                format: 'csv',
+            });
+            assert.equal(rowCount, 2);
+            assert.equal(paths.length, 1);
+            const body = await fs.readFile(paths[0], 'utf8');
+            assert.ok(body.includes('"pk"'));
+            assert.ok(body.includes('"1"'));
+        } finally {
+            await fs.rm(tmp, { recursive: true, force: true });
+        }
+    });
+
+    it('splits CSV into two parts when maxRowsPerFile is reached', async () => {
+        const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-export-split-'));
+        try {
+            const sdk = {
+                rest: {
+                    async *getBulkPages() {
+                        yield {
+                            iteratorField: 'items',
+                            pageItems: [
+                                { keys: { pk: '1' }, values: { a: 'x' } },
+                                { keys: { pk: '2' }, values: { a: 'y' } },
+                                { keys: { pk: '3' }, values: { a: 'z' } },
+                            ],
+                            page: 1,
+                            totalPages: 1,
+                            totalCount: 3,
+                            responseBatch: { items: [], count: 3 },
+                        };
+                    },
+                },
+                soap: {
+                    retrieve: async () => ({ Results: [] }),
+                },
+            };
+            const { paths, rowCount } = await exportDataExtensionToFile(sdk, {
+                projectRoot: tmp,
+                credentialName: 'cred',
+                buName: 'bu',
+                deKey: 'DE_KEY',
+                format: 'csv',
+                maxRowsPerFile: 2,
+            });
+            assert.equal(rowCount, 3);
+            assert.equal(paths.length, 2);
         } finally {
             await fs.rm(tmp, { recursive: true, force: true });
         }

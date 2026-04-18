@@ -3,7 +3,7 @@ import { describe, it, before, after } from 'node:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { readRowsFromFile } from '../lib/read-rows.mjs';
+import { readRowsFromFile, readRowsFromImportPaths } from '../lib/read-rows.mjs';
 
 describe('readRowsFromFile', () => {
     let tmp;
@@ -66,5 +66,45 @@ describe('readRowsFromFile', () => {
         assert.deepEqual(rows, [{ col1: 'v1', col2: 'v2' }]);
         assert.ok(!Object.keys(rows[0]).some((k) => k.includes('\uFEFF')), 'no BOM in keys');
         assert.ok(!Object.keys(rows[0]).some((k) => k.includes('"')), 'no quotes in keys');
+    });
+
+    it('reads CSV continuation without header when columnHeaders is provided', async () => {
+        const p = path.join(tmp, 'cont.csv');
+        await fs.writeFile(p, '3,4\n', 'utf8');
+        const rows = await readRowsFromFile(p, 'csv', {
+            columnHeaders: ['col1', 'col2'],
+        });
+        assert.deepEqual(rows, [{ col1: '3', col2: '4' }]);
+    });
+});
+
+describe('readRowsFromImportPaths', () => {
+    let tmp;
+    before(async () => {
+        tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-read-multi-'));
+    });
+    after(async () => {
+        await fs.rm(tmp, { recursive: true, force: true });
+    });
+
+    it('concatenates two CSV parts (header in first file only)', async () => {
+        const p1 = path.join(tmp, 'a.csv');
+        const p2 = path.join(tmp, 'b.csv');
+        await fs.writeFile(p1, 'col1,col2\n1,2\n', 'utf8');
+        await fs.writeFile(p2, '3,4\n', 'utf8');
+        const rows = await readRowsFromImportPaths([p1, p2], 'csv');
+        assert.deepEqual(rows, [
+            { col1: '1', col2: '2' },
+            { col1: '3', col2: '4' },
+        ]);
+    });
+
+    it('concatenates JSON arrays from multiple files', async () => {
+        const p1 = path.join(tmp, 'x.json');
+        const p2 = path.join(tmp, 'y.json');
+        await fs.writeFile(p1, JSON.stringify([{ a: 1 }]), 'utf8');
+        await fs.writeFile(p2, JSON.stringify([{ a: 2 }]), 'utf8');
+        const rows = await readRowsFromImportPaths([p1, p2], 'json');
+        assert.deepEqual(rows, [{ a: 1 }, { a: 2 }]);
     });
 });

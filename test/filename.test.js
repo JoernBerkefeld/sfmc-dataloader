@@ -46,4 +46,12 @@ describe('filename', () => {
         const { timestampPart } = parseExportBasename(`${stem}.csv`);
         assert.equal(timestampPart, 'part.two');
     });
+
+    it('buildExportBasename encodes multipart before timestamp', () => {
+        const base = buildExportBasename('DE', '2026-01-01T00-00-00.000Z', 'csv', false, 3);
+        const parsed = parseExportBasename(base);
+        assert.equal(parsed.customerKey, 'DE');
+        assert.equal(parsed.partNumber, 3);
+        assert.equal(parsed.timestampPart, '2026-01-01T00-00-00.000Z');
+    });
 });

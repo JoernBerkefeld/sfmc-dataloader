@@ -221,4 +221,44 @@ describe('buildSdkOptions', () => {
         assert.ok(bodyLog.startsWith('RESPONSE BODY <<\n'), 'body should start with newline');
         assert.ok(bodyLog.includes('  {'), 'body lines should be indented with 2 spaces');
     });
+
+    it('onLoop writes batch progress when context is provided', () => {
+        const options = buildSdkOptions(null);
+        const chunks = [];
+        const orig = process.stdout.write.bind(process.stdout);
+        process.stdout.write = (s) => {
+            chunks.push(s);
+            return true;
+        };
+        try {
+            options.eventHandlers.onLoop(undefined, [1, 2], {
+                nextPage: 2,
+                totalPages: 4,
+                accumulatedCount: 2500,
+            });
+        } finally {
+            process.stdout.write = orig;
+        }
+        const out = chunks.join('');
+        assert.ok(out.includes('Requesting batch 2 of 4'));
+        assert.ok(out.includes('2500'));
+    });
+
+    it('onLoop writes legacy line when context is absent', () => {
+        const options = buildSdkOptions(null);
+        const chunks = [];
+        const orig = process.stdout.write.bind(process.stdout);
+        process.stdout.write = (s) => {
+            chunks.push(s);
+            return true;
+        };
+        try {
+            options.eventHandlers.onLoop(undefined, [1, 2, 3]);
+        } finally {
+            process.stdout.write = orig;
+        }
+        const out = chunks.join('');
+        assert.ok(out.includes('Requesting next batch'));
+        assert.ok(out.includes('3'));
+    });
 });

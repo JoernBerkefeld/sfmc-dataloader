@@ -7,6 +7,7 @@ import {
     findImportCandidates,
     formatFromExtension,
     pickLatestByMtime,
+    resolveImportSet,
 } from '../lib/file-resolve.mjs';
 import { buildExportBasename } from '../lib/filename.mjs';
 
@@ -69,5 +70,33 @@ describe('file-resolve', () => {
         const found = await findImportCandidates(tmp, 'TestDE', 'csv');
         const best = await pickLatestByMtime(found);
         assert.ok(best.includes('2026-01-01'));
+    });
+});
+
+describe('resolveImportSet', () => {
+    let tmp;
+    before(async () => {
+        tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-ris-'));
+    });
+    after(async () => {
+        await fs.rm(tmp, { recursive: true, force: true });
+    });
+
+    it('orders multi-part CSV paths by part number', async () => {
+        const key = 'PartDE';
+        const ts = '2026-02-01T00-00-00.000Z';
+        const p2 = buildExportBasename(key, ts, 'csv', false, 2);
+        const p1 = buildExportBasename(key, ts, 'csv', false, 1);
+        await fs.writeFile(path.join(tmp, p2), 'x', 'utf8');
+        await new Promise((r) => setTimeout(r, 10));
+        await fs.writeFile(path.join(tmp, p1), 'y', 'utf8');
+        const { paths, isMultiPart } = await resolveImportSet([
+            path.join(tmp, p2),
+            path.join(tmp, p1),
+        ]);
+        assert.equal(isMultiPart, true);
+        assert.equal(paths.length, 2);
+        assert.ok(paths[0].includes('part1'));
+        assert.ok(paths[1].includes('part2'));
     });
 });
