@@ -161,13 +161,19 @@ describe('buildSdkOptions', () => {
     it('returns basic options when logger is null', () => {
         const options = buildSdkOptions(null);
         assert.equal(options.requestAttempts, 3);
-        assert.equal(options.eventHandlers, undefined);
+        assert.equal(options.retryOnConnectionError, true);
+        assert.ok(options.eventHandlers, 'eventHandlers should be defined');
+        assert.equal(typeof options.eventHandlers.onLoop, 'function');
+        assert.equal(typeof options.eventHandlers.onConnectionError, 'function');
     });
 
     it('returns basic options when logger is not provided', () => {
         const options = buildSdkOptions();
         assert.equal(options.requestAttempts, 3);
-        assert.equal(options.eventHandlers, undefined);
+        assert.equal(options.retryOnConnectionError, true);
+        assert.ok(options.eventHandlers, 'eventHandlers should be defined');
+        assert.equal(typeof options.eventHandlers.onLoop, 'function');
+        assert.equal(typeof options.eventHandlers.onConnectionError, 'function');
     });
 
     it('includes eventHandlers when logger is provided', () => {
@@ -175,7 +181,10 @@ describe('buildSdkOptions', () => {
         const mockLogger = { write: (text) => logs.push(text), logPath: '/tmp/test.log' };
         const options = buildSdkOptions(mockLogger);
         assert.equal(options.requestAttempts, 3);
+        assert.equal(options.retryOnConnectionError, true);
         assert.ok(options.eventHandlers, 'eventHandlers should be defined');
+        assert.equal(typeof options.eventHandlers.onLoop, 'function');
+        assert.equal(typeof options.eventHandlers.onConnectionError, 'function');
         assert.equal(typeof options.eventHandlers.logRequest, 'function');
         assert.equal(typeof options.eventHandlers.logResponse, 'function');
     });

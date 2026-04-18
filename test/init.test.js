@@ -52,6 +52,18 @@ describe('processBusinessUnitResults', () => {
         assert.equal(businessUnits['ProdBU_main'], 300);
     });
 
+    it('sorts child BU keys alphabetically with _ParentBU_ first', () => {
+        const rows = [
+            { ID: '100', ParentID: '0', Name: 'Parent', IsActive: 'true' },
+            { ID: '300', ParentID: '100', Name: 'Zebra BU', IsActive: 'true' },
+            { ID: '200', ParentID: '100', Name: 'Alpha BU', IsActive: 'true' },
+        ];
+        const { businessUnits } = processBusinessUnitResults(rows, 999);
+        assert.deepEqual(Object.keys(businessUnits), ['_ParentBU_', 'Alpha_BU', 'Zebra_BU']);
+        assert.equal(businessUnits['Alpha_BU'], 200);
+        assert.equal(businessUnits['Zebra_BU'], 300);
+    });
+
     it('falls back to provided enterpriseId when no parent row present', () => {
         const rows = [{ ID: '200', ParentID: '100', Name: 'Child', IsActive: 'true' }];
         const { eid } = processBusinessUnitResults(rows, 42);
