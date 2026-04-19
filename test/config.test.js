@@ -240,7 +240,7 @@ describe('buildSdkOptions', () => {
             process.stdout.write = orig;
         }
         const out = chunks.join('');
-        assert.ok(out.includes('Requesting batch 2 of 4'));
+        assert.ok(out.includes('Downloading batch 2 of 4'));
         assert.ok(out.includes('2500'));
     });
 
@@ -258,7 +258,7 @@ describe('buildSdkOptions', () => {
             process.stdout.write = orig;
         }
         const out = chunks.join('');
-        assert.ok(out.includes('Requesting next batch'));
+        assert.ok(out.includes('Downloading next batch'));
         assert.ok(out.includes('3'));
     });
 });

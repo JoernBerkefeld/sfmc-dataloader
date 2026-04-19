@@ -64,6 +64,22 @@ describe('cli import — clear-before-import skip when DE is empty', () => {
     });
 });
 
+/**
+ * Mirrors `warnIfImportCountUnexpected` expected minimum (same as lib/import-de.mjs).
+ *
+ * @param {object} p
+ * @param {number} p.countBefore
+ * @param {boolean} p.cleared
+ * @param {number} p.imported
+ * @param {'upsert'|'insert'} p.mode
+ */
+function expectedMinRowCountAfterImport({ countBefore, cleared, imported, mode }) {
+    const effectiveCountBefore = cleared ? 0 : countBefore;
+    return mode === 'insert' || effectiveCountBefore === 0
+        ? effectiveCountBefore + imported
+        : imported;
+}
+
 describe('import assessment — countAfter vs expected', () => {
     it('detects unexpected low count for insert mode', () => {
         const mode = 'insert';
@@ -71,7 +87,12 @@ describe('import assessment — countAfter vs expected', () => {
         const imported = 5;
         const countAfter = 12; // lower than expected 15
 
-        const expected = mode === 'insert' || countBefore === 0 ? countBefore + imported : imported;
+        const expected = expectedMinRowCountAfterImport({
+            countBefore,
+            cleared: false,
+            imported,
+            mode,
+        });
         assert.equal(expected, 15);
         assert.ok(countAfter < expected, 'should flag as unexpected');
     });
@@ -82,8 +103,29 @@ describe('import assessment — countAfter vs expected', () => {
         const imported = 5;
         const countAfter = 15;
 
-        const expected = mode === 'insert' || countBefore === 0 ? countBefore + imported : imported;
+        const expected = expectedMinRowCountAfterImport({
+            countBefore,
+            cleared: false,
+            imported,
+            mode,
+        });
         assert.equal(expected, 15);
+        assert.ok(countAfter >= expected, 'should not flag as unexpected');
+    });
+
+    it('insert after clear uses effective empty DE (expected = imported, not countBefore + imported)', () => {
+        const mode = 'insert';
+        const countBefore = 11;
+        const imported = 11;
+        const countAfter = 11;
+
+        const expected = expectedMinRowCountAfterImport({
+            countBefore,
+            cleared: true,
+            imported,
+            mode,
+        });
+        assert.equal(expected, 11);
         assert.ok(countAfter >= expected, 'should not flag as unexpected');
     });
 
@@ -93,7 +135,12 @@ describe('import assessment — countAfter vs expected', () => {
         const imported = 50;
         const countAfter = 40; // lower than 50 imported
 
-        const expected = mode === 'insert' || countBefore === 0 ? countBefore + imported : imported;
+        const expected = expectedMinRowCountAfterImport({
+            countBefore,
+            cleared: false,
+            imported,
+            mode,
+        });
         assert.equal(expected, 50);
         assert.ok(countAfter < expected, 'should flag as unexpected');
     });
@@ -104,7 +151,12 @@ describe('import assessment — countAfter vs expected', () => {
         const imported = 30;
         const countAfter = 25; // lower than 30
 
-        const expected = mode === 'insert' || countBefore === 0 ? countBefore + imported : imported;
+        const expected = expectedMinRowCountAfterImport({
+            countBefore,
+            cleared: false,
+            imported,
+            mode,
+        });
         assert.equal(expected, 30);
         assert.ok(countAfter < expected, 'should flag as unexpected');
     });

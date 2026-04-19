@@ -131,6 +131,7 @@ describe('exportDataExtensionToFile', () => {
         try {
             const sdk = {
                 rest: {
+                    // eslint-disable-next-line require-yield
                     async *getBulkPages() {
                         throw new Error('Could not find an array to iterate over');
                     },

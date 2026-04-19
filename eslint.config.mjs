@@ -69,6 +69,7 @@ export default [
             'unicorn/prefer-spread': 'off',
             'unicorn/prefer-string-replace-all': 'error',
             'unicorn/prevent-abbreviations': 'off',
+            'no-unused-vars': ['error', { varsIgnorePattern: '^_', argsIgnorePattern: '^_' }],
             'arrow-body-style': ['error', 'as-needed'],
             curly: 'error',
             'no-console': 'warn',

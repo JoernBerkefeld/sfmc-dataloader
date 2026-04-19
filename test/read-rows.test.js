@@ -3,7 +3,25 @@ import { describe, it, before, after } from 'node:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { readRowsFromFile, readRowsFromImportPaths } from '../lib/read-rows.mjs';
+import {
+    countDataRowsFromImportPaths,
+    readRowsFromFile,
+    readRowsFromImportPaths,
+    streamRowsFromFile,
+    streamRowsFromImportPaths,
+} from '../lib/read-rows.mjs';
+
+/**
+ * @param {AsyncIterable<object>} gen
+ * @returns {Promise.<object[]>}
+ */
+async function collectAsync(gen) {
+    const out = [];
+    for await (const row of gen) {
+        out.push(row);
+    }
+    return out;
+}
 
 describe('readRowsFromFile', () => {
     let tmp;
@@ -78,6 +96,32 @@ describe('readRowsFromFile', () => {
     });
 });
 
+describe('streamRowsFromFile', () => {
+    let tmp;
+    before(async () => {
+        tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-stream-'));
+    });
+    after(async () => {
+        await fs.rm(tmp, { recursive: true, force: true });
+    });
+
+    it('matches readRowsFromFile for CSV', async () => {
+        const p = path.join(tmp, 's.csv');
+        await fs.writeFile(p, 'col1,col2\n1,2\n', 'utf8');
+        const expected = await readRowsFromFile(p, 'csv');
+        const streamed = await collectAsync(streamRowsFromFile(p, 'csv'));
+        assert.deepEqual(streamed, expected);
+    });
+
+    it('matches readRowsFromFile for JSON', async () => {
+        const p = path.join(tmp, 's.json');
+        await fs.writeFile(p, JSON.stringify([{ x: 1 }]), 'utf8');
+        const expected = await readRowsFromFile(p, 'json');
+        const streamed = await collectAsync(streamRowsFromFile(p, 'json'));
+        assert.deepEqual(streamed, expected);
+    });
+});
+
 describe('readRowsFromImportPaths', () => {
     let tmp;
     before(async () => {
@@ -106,5 +150,23 @@ describe('readRowsFromImportPaths', () => {
         await fs.writeFile(p2, JSON.stringify([{ a: 2 }]), 'utf8');
         const rows = await readRowsFromImportPaths([p1, p2], 'json');
         assert.deepEqual(rows, [{ a: 1 }, { a: 2 }]);
+    });
+
+    it('streamRowsFromImportPaths matches readRowsFromImportPaths for multi-part CSV', async () => {
+        const p1 = path.join(tmp, 'sa.csv');
+        const p2 = path.join(tmp, 'sb.csv');
+        await fs.writeFile(p1, 'col1,col2\n1,2\n', 'utf8');
+        await fs.writeFile(p2, '3,4\n', 'utf8');
+        const expected = await readRowsFromImportPaths([p1, p2], 'csv');
+        const streamed = await collectAsync(streamRowsFromImportPaths([p1, p2], 'csv'));
+        assert.deepEqual(streamed, expected);
+    });
+
+    it('countDataRowsFromImportPaths matches row array length', async () => {
+        const p1 = path.join(tmp, 'cnt.csv');
+        await fs.writeFile(p1, 'a,b\n1,2\n3,4\n', 'utf8');
+        const rows = await readRowsFromImportPaths([p1], 'csv');
+        const n = await countDataRowsFromImportPaths([p1], 'csv');
+        assert.equal(n, rows.length);
     });
 });
