@@ -38,7 +38,7 @@
     "dependencies": {
         "csv-parser": "3.2.0",
         "csv-stringify": "6.7.0",
-        "sfmc-sdk": "^3.2.1"
+        "sfmc-sdk": "^3.2.2"
     },
     "scripts": {
         "test": "node --test test/*.test.js",
