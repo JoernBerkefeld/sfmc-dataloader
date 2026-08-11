@@ -38,11 +38,14 @@ describe('normalizeDeListFromBulkResult', () => {
 
 describe('fetchDeList', () => {
     it('rejects when project root has no config', async () => {
-        const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-de-list-'));
+        const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-de-list-'));
         try {
-            await assert.rejects(() => fetchDeList(tmp, 'cred', 'bu'), /No project config found/);
+            await assert.rejects(
+                () => fetchDeList(temporary, 'cred', 'bu'),
+                /No project config found/,
+            );
         } finally {
-            await fs.rm(tmp, { recursive: true, force: true });
+            await fs.rm(temporary, { recursive: true, force: true });
         }
     });
 });

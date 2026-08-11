@@ -32,11 +32,11 @@ describe('crossBuImport — API mode', () => {
     });
 
     it('rejects when source credential is missing from mcdevrc', async () => {
-        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-test-'));
+        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-test-'));
         await assert.rejects(
             () =>
                 crossBuImport({
-                    projectRoot: tmpDir,
+                    projectRoot: temporaryDirectory,
                     mcdevrc,
                     mcdevAuth,
                     sourceCred: 'UnknownCred',
@@ -51,15 +51,15 @@ describe('crossBuImport — API mode', () => {
                 }),
             /UnknownCred/,
         );
-        await fs.rm(tmpDir, { recursive: true, force: true });
+        await fs.rm(temporaryDirectory, { recursive: true, force: true });
     });
 
     it('rejects when target BU is unknown', async () => {
-        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-test-'));
+        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-test-'));
         await assert.rejects(
             () =>
                 crossBuImport({
-                    projectRoot: tmpDir,
+                    projectRoot: temporaryDirectory,
                     mcdevrc,
                     mcdevAuth,
                     sourceCred: 'MyCred',
@@ -74,22 +74,22 @@ describe('crossBuImport — API mode', () => {
                 }),
             /NonExistent/,
         );
-        await fs.rm(tmpDir, { recursive: true, force: true });
+        await fs.rm(temporaryDirectory, { recursive: true, force: true });
     });
 });
 
 describe('crossBuImport — file mode', () => {
     it('rejects when a target BU is unknown', async () => {
-        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-file-test-'));
+        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-file-test-'));
         const fakeCsv = path.join(
-            tmpDir,
+            temporaryDirectory,
             buildExportBasename('My_DE', '2026-04-08T10-00-00.000Z', 'csv'),
         );
         await fs.writeFile(fakeCsv, 'col1,col2\nval1,val2\n', 'utf8');
         await assert.rejects(
             () =>
                 crossBuImport({
-                    projectRoot: tmpDir,
+                    projectRoot: temporaryDirectory,
                     mcdevrc,
                     mcdevAuth,
                     filePaths: [fakeCsv],
@@ -102,7 +102,7 @@ describe('crossBuImport — file mode', () => {
                 }),
             /NonExistent/,
         );
-        await fs.rm(tmpDir, { recursive: true, force: true });
+        await fs.rm(temporaryDirectory, { recursive: true, force: true });
     });
 
     it('derives DE key from .mcdata. filename correctly', () => {
@@ -114,14 +114,14 @@ describe('crossBuImport — file mode', () => {
 
 describe('crossBuImport — backupBeforeImport flag', () => {
     it('skips backup when backupBeforeImport is false, even with isTTY true', async () => {
-        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-backup-test-'));
+        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-backup-test-'));
         // Rejects at SDK connection (bad creds), but must not attempt the TTY backup prompt
         // before reaching that point — target validation happens first, so use a valid target.
         // We only verify the backup export is not triggered; SDK failure is expected.
         await assert.rejects(
             () =>
                 crossBuImport({
-                    projectRoot: tmpDir,
+                    projectRoot: temporaryDirectory,
                     mcdevrc,
                     mcdevAuth,
                     sourceCred: 'UnknownCred',
@@ -137,15 +137,15 @@ describe('crossBuImport — backupBeforeImport flag', () => {
                 }),
             /UnknownCred/,
         );
-        await fs.rm(tmpDir, { recursive: true, force: true });
+        await fs.rm(temporaryDirectory, { recursive: true, force: true });
     });
 
     it('skips backup when backupBeforeImport is undefined and isTTY is false', async () => {
-        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-notty-test-'));
+        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-notty-test-'));
         await assert.rejects(
             () =>
                 crossBuImport({
-                    projectRoot: tmpDir,
+                    projectRoot: temporaryDirectory,
                     mcdevrc,
                     mcdevAuth,
                     sourceCred: 'UnknownCred',
@@ -161,6 +161,6 @@ describe('crossBuImport — backupBeforeImport flag', () => {
                 }),
             /UnknownCred/,
         );
-        await fs.rm(tmpDir, { recursive: true, force: true });
+        await fs.rm(temporaryDirectory, { recursive: true, force: true });
     });
 });

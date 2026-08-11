@@ -8,7 +8,7 @@ describe('log', () => {
         const stdoutLines = [];
         const stderrLines = [];
         const origLog = console.log;
-        const origErr = console.error;
+        const origError = console.error;
         const origWarn = console.warn;
         console.log = (s) => {
             stdoutLines.push(String(s));
@@ -25,7 +25,7 @@ describe('log', () => {
             log.error('oops');
         } finally {
             console.log = origLog;
-            console.error = origErr;
+            console.error = origError;
             console.warn = origWarn;
         }
         /* eslint-enable no-console */

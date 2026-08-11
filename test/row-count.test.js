@@ -3,19 +3,19 @@ import assert from 'node:assert/strict';
 import { getDeRowCount } from '../lib/row-count.mjs';
 
 /**
- * @param {object} opts
- * @param {object} [opts.response] - resolved response from sdk.rest.get
- * @param {Error} [opts.error] - if set, sdk.rest.get rejects with this
+ * @param {object} options
+ * @param {object} [options.response] - resolved response from sdk.rest.get
+ * @param {Error} [options.error] - if set, sdk.rest.get rejects with this
  * @returns {{ rest: { get: Function } }}
  */
-function mockSdk(opts = {}) {
+function mockSdk(options = {}) {
     return {
         rest: {
             get: async () => {
-                if (opts.error) {
-                    throw opts.error;
+                if (options.error) {
+                    throw options.error;
                 }
-                return opts.response ?? {};
+                return options.response ?? {};
             },
         },
     };

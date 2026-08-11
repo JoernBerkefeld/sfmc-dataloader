@@ -94,9 +94,9 @@ describe('runMcdataInit', () => {
         businessUnits: { _ParentBU_: 100, Dev: 200 },
     };
 
-    async function initWithFakeBu(dir, extraOpts = {}) {
+    async function initWithFakeBu(directory, extraOptions = {}) {
         return runMcdataInit({
-            projectRoot: dir,
+            projectRoot: directory,
             isTTY: false,
             credential: 'TestOrg',
             clientId: 'cid',
@@ -107,21 +107,23 @@ describe('runMcdataInit', () => {
             stdout: () => {},
             stderr: () => {},
             _buFetcher: async () => FIXED_BU_RESULT,
-            ...extraOpts,
+            ...extraOptions,
         });
     }
 
     it('returns 1 when both .mcdevrc.json and .mcdev-auth.json exist', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
-            await fs.writeFile(path.join(dir, '.mcdevrc.json'), '{}');
-            await fs.writeFile(path.join(dir, '.mcdev-auth.json'), '{}');
+            await fs.writeFile(path.join(directory, '.mcdevrc.json'), '{}');
+            await fs.writeFile(path.join(directory, '.mcdev-auth.json'), '{}');
             const errors = [];
             const code = await runMcdataInit({
-                projectRoot: dir,
+                projectRoot: directory,
                 isTTY: false,
                 yes: true,
-                stderr: (msg) => errors.push(msg),
+                stderr: (message) => {
+                    errors.push(message);
+                },
                 stdout: () => {},
                 _buFetcher: async () => FIXED_BU_RESULT,
             });
@@ -130,28 +132,28 @@ describe('runMcdataInit', () => {
                 errors.some((m) => m.includes('.mcdevrc.json') && m.includes('.mcdev-auth.json')),
             );
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('proceeds when only .mcdevrc.json exists without .mcdev-auth.json', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
-            await fs.writeFile(path.join(dir, '.mcdevrc.json'), '{}');
-            const code = await initWithFakeBu(dir);
+            await fs.writeFile(path.join(directory, '.mcdevrc.json'), '{}');
+            const code = await initWithFakeBu(directory);
             assert.equal(code, 0);
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('returns 1 when .mcdatarc.json exists in non-interactive mode without --yes', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
-            await fs.writeFile(path.join(dir, '.mcdatarc.json'), '{}');
+            await fs.writeFile(path.join(directory, '.mcdatarc.json'), '{}');
             const errors = [];
             const code = await runMcdataInit({
-                projectRoot: dir,
+                projectRoot: directory,
                 isTTY: false,
                 credential: 'TestOrg',
                 clientId: 'cid',
@@ -159,35 +161,37 @@ describe('runMcdataInit', () => {
                 authUrl: 'https://mc.auth.marketingcloudapis.com/',
                 enterpriseId: '100',
                 yes: false,
-                stderr: (msg) => errors.push(msg),
+                stderr: (message) => {
+                    errors.push(message);
+                },
                 stdout: () => {},
                 _buFetcher: async () => FIXED_BU_RESULT,
             });
             assert.equal(code, 1);
             assert.ok(errors.some((m) => m.includes('Pass --yes')));
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('skips overwrite confirmation when --yes is true and .mcdatarc.json exists', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
-            await fs.writeFile(path.join(dir, '.mcdatarc.json'), '{}');
-            const code = await initWithFakeBu(dir);
+            await fs.writeFile(path.join(directory, '.mcdatarc.json'), '{}');
+            const code = await initWithFakeBu(directory);
             assert.equal(code, 0);
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('calls _confirm and aborts when user answers no', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
-            await fs.writeFile(path.join(dir, '.mcdatarc.json'), '{}');
+            await fs.writeFile(path.join(directory, '.mcdatarc.json'), '{}');
             const messages = [];
             const code = await runMcdataInit({
-                projectRoot: dir,
+                projectRoot: directory,
                 isTTY: true,
                 credential: 'TestOrg',
                 clientId: 'cid',
@@ -195,7 +199,9 @@ describe('runMcdataInit', () => {
                 authUrl: 'https://mc.auth.marketingcloudapis.com/',
                 enterpriseId: '100',
                 yes: false,
-                stdout: (msg) => messages.push(msg),
+                stdout: (message) => {
+                    messages.push(message);
+                },
                 stderr: () => {},
                 _confirm: async () => false,
                 _buFetcher: async () => FIXED_BU_RESULT,
@@ -203,16 +209,16 @@ describe('runMcdataInit', () => {
             assert.equal(code, 1);
             assert.ok(messages.some((m) => m.includes('Aborted')));
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('calls _confirm and proceeds when user answers yes', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
-            await fs.writeFile(path.join(dir, '.mcdatarc.json'), '{}');
+            await fs.writeFile(path.join(directory, '.mcdatarc.json'), '{}');
             const code = await runMcdataInit({
-                projectRoot: dir,
+                projectRoot: directory,
                 isTTY: true,
                 credential: 'TestOrg',
                 clientId: 'cid',
@@ -227,71 +233,75 @@ describe('runMcdataInit', () => {
             });
             assert.equal(code, 0);
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('returns 1 in non-interactive mode when required flags are missing', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
             const errors = [];
             const code = await runMcdataInit({
-                projectRoot: dir,
+                projectRoot: directory,
                 isTTY: false,
                 stdout: () => {},
-                stderr: (msg) => errors.push(msg),
+                stderr: (message) => {
+                    errors.push(message);
+                },
             });
             assert.equal(code, 1);
             assert.ok(errors.some((m) => m.includes('missing required flags')));
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('writes .mcdatarc.json and .mcdata-auth.json on success', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
-            const code = await initWithFakeBu(dir);
+            const code = await initWithFakeBu(directory);
             assert.equal(code, 0);
-            const rc = JSON.parse(fss.readFileSync(path.join(dir, '.mcdatarc.json'), 'utf8'));
+            const rc = JSON.parse(fss.readFileSync(path.join(directory, '.mcdatarc.json'), 'utf8'));
             assert.equal(rc.credentials.TestOrg.eid, 100);
             assert.equal(rc.credentials.TestOrg.businessUnits.Dev, 200);
-            const auth = JSON.parse(fss.readFileSync(path.join(dir, '.mcdata-auth.json'), 'utf8'));
+            const auth = JSON.parse(
+                fss.readFileSync(path.join(directory, '.mcdata-auth.json'), 'utf8'),
+            );
             assert.equal(auth.TestOrg.client_id, 'cid');
             assert.equal(auth.TestOrg.account_id, 100);
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('creates .gitignore with .mcdata-auth.json entry', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
-            await initWithFakeBu(dir);
-            const gitignore = fss.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+            await initWithFakeBu(directory);
+            const gitignore = fss.readFileSync(path.join(directory, '.gitignore'), 'utf8');
             assert.ok(gitignore.includes('.mcdata-auth.json'));
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('appends .mcdata-auth.json to existing .gitignore without duplication', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
-            await fs.writeFile(path.join(dir, '.gitignore'), 'node_modules\n');
-            await initWithFakeBu(dir);
-            const gitignore = fss.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+            await fs.writeFile(path.join(directory, '.gitignore'), 'node_modules\n');
+            await initWithFakeBu(directory);
+            const gitignore = fss.readFileSync(path.join(directory, '.gitignore'), 'utf8');
             assert.ok(gitignore.includes('node_modules'));
             assert.ok(gitignore.includes('.mcdata-auth.json'));
             const count = (gitignore.match(/\.mcdata-auth\.json/g) ?? []).length;
             assert.equal(count, 1);
             // Run again — still only one entry
-            await initWithFakeBu(dir);
-            const gitignore2 = fss.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+            await initWithFakeBu(directory);
+            const gitignore2 = fss.readFileSync(path.join(directory, '.gitignore'), 'utf8');
             const count2 = (gitignore2.match(/\.mcdata-auth\.json/g) ?? []).length;
             assert.equal(count2, 1);
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 });

@@ -25,9 +25,9 @@ const mcdevAuth = {
 
 describe('multiBuExport', () => {
     it('accepts an empty sources array without throwing and returns []', async () => {
-        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mbe-test-empty-'));
+        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'mbe-test-empty-'));
         const result = await multiBuExport({
-            projectRoot: tmpDir,
+            projectRoot: temporaryDirectory,
             mcdevrc,
             mcdevAuth,
             sources: [],
@@ -35,15 +35,15 @@ describe('multiBuExport', () => {
             format: 'csv',
         });
         assert.deepEqual(result, []);
-        await fs.rm(tmpDir, { recursive: true, force: true });
+        await fs.rm(temporaryDirectory, { recursive: true, force: true });
     });
 
     it('rejects when a source credential is missing from mcdevrc', async () => {
-        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mbe-test-missing-'));
+        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'mbe-test-missing-'));
         await assert.rejects(
             () =>
                 multiBuExport({
-                    projectRoot: tmpDir,
+                    projectRoot: temporaryDirectory,
                     mcdevrc,
                     mcdevAuth,
                     sources: [{ credential: 'UnknownCred', bu: 'Dev' }],
@@ -52,15 +52,15 @@ describe('multiBuExport', () => {
                 }),
             /UnknownCred/,
         );
-        await fs.rm(tmpDir, { recursive: true, force: true });
+        await fs.rm(temporaryDirectory, { recursive: true, force: true });
     });
 
     it('rejects when a source BU is missing from mcdevrc', async () => {
-        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mbe-test-missing-bu-'));
+        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'mbe-test-missing-bu-'));
         await assert.rejects(
             () =>
                 multiBuExport({
-                    projectRoot: tmpDir,
+                    projectRoot: temporaryDirectory,
                     mcdevrc,
                     mcdevAuth,
                     sources: [{ credential: 'MyCred', bu: 'NonExistent' }],
@@ -69,6 +69,6 @@ describe('multiBuExport', () => {
                 }),
             /NonExistent/,
         );
-        await fs.rm(tmpDir, { recursive: true, force: true });
+        await fs.rm(temporaryDirectory, { recursive: true, force: true });
     });
 });

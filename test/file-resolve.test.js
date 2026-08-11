@@ -35,51 +35,51 @@ describe('formatFromExtension', () => {
 });
 
 describe('file-resolve', () => {
-    let tmp;
+    let temporary;
     before(async () => {
-        tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-fr-'));
+        temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-fr-'));
         const key = 'TestDE';
         const olderCsv = buildExportBasename(key, '2020-01-01T00-00-00.000Z', 'csv');
         const newerCsv = buildExportBasename(key, '2026-01-01T00-00-00.000Z', 'csv');
         const tsvFile = buildExportBasename(key, '2025-06-01T00-00-00.000Z', 'tsv');
-        await fs.writeFile(path.join(tmp, olderCsv), 'a', 'utf8');
+        await fs.writeFile(path.join(temporary, olderCsv), 'a', 'utf8');
         await new Promise((r) => setTimeout(r, 20));
-        await fs.writeFile(path.join(tmp, tsvFile), 'c', 'utf8');
+        await fs.writeFile(path.join(temporary, tsvFile), 'c', 'utf8');
         await new Promise((r) => setTimeout(r, 20));
-        await fs.writeFile(path.join(tmp, newerCsv), 'b', 'utf8');
+        await fs.writeFile(path.join(temporary, newerCsv), 'b', 'utf8');
     });
 
     after(async () => {
-        await fs.rm(tmp, { recursive: true, force: true });
+        await fs.rm(temporary, { recursive: true, force: true });
     });
 
     it('findImportCandidates returns matching files for specific format', async () => {
-        const found = await findImportCandidates(tmp, 'TestDE', 'csv');
+        const found = await findImportCandidates(temporary, 'TestDE', 'csv');
         assert.equal(found.length, 2);
         assert.ok(found.every((f) => f.endsWith('.csv')));
     });
 
     it('findImportCandidates searches all formats when format omitted', async () => {
-        const found = await findImportCandidates(tmp, 'TestDE');
+        const found = await findImportCandidates(temporary, 'TestDE');
         assert.equal(found.length, 3);
         assert.ok(found.some((f) => f.endsWith('.csv')));
         assert.ok(found.some((f) => f.endsWith('.tsv')));
     });
 
     it('pickLatestByMtime picks newest', async () => {
-        const found = await findImportCandidates(tmp, 'TestDE', 'csv');
+        const found = await findImportCandidates(temporary, 'TestDE', 'csv');
         const best = await pickLatestByMtime(found);
         assert.ok(best.includes('2026-01-01'));
     });
 });
 
 describe('resolveImportSet', () => {
-    let tmp;
+    let temporary;
     before(async () => {
-        tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-ris-'));
+        temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-ris-'));
     });
     after(async () => {
-        await fs.rm(tmp, { recursive: true, force: true });
+        await fs.rm(temporary, { recursive: true, force: true });
     });
 
     it('orders multi-part CSV paths by part number', async () => {
@@ -87,12 +87,12 @@ describe('resolveImportSet', () => {
         const ts = '2026-02-01T00-00-00.000Z';
         const p2 = buildExportBasename(key, ts, 'csv', false, 2);
         const p1 = buildExportBasename(key, ts, 'csv', false, 1);
-        await fs.writeFile(path.join(tmp, p2), 'x', 'utf8');
+        await fs.writeFile(path.join(temporary, p2), 'x', 'utf8');
         await new Promise((r) => setTimeout(r, 10));
-        await fs.writeFile(path.join(tmp, p1), 'y', 'utf8');
+        await fs.writeFile(path.join(temporary, p1), 'y', 'utf8');
         const { paths, isMultiPart } = await resolveImportSet([
-            path.join(tmp, p2),
-            path.join(tmp, p1),
+            path.join(temporary, p2),
+            path.join(temporary, p1),
         ]);
         assert.equal(isMultiPart, true);
         assert.equal(paths.length, 2);

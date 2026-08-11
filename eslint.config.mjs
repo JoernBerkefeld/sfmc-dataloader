@@ -4,7 +4,9 @@ import globals from 'globals';
 import jsdoc from 'eslint-plugin-jsdoc';
 import js from '@eslint/js';
 
-/** Flat ESLint config — aligned with `.cursor/rules/new-subproject-setup.mdc` (JSDoc rules relaxed for large catalogs). */
+/**
+ * Flat ESLint config — aligned with `.cursor/rules/new-subproject-setup.mdc` (JSDoc rules relaxed for large catalogs).
+ */
 export default [
     {
         ignores: ['**/node_modules/**', '**/dist/**', '**/out/**', '**/coverage/**'],

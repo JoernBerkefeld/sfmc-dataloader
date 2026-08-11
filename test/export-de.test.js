@@ -47,7 +47,7 @@ describe('fetchAllRowObjects', () => {
 describe('serializeRows', () => {
     it('writes CSV with BOM', () => {
         const s = serializeRows([{ a: '1' }], 'csv', false);
-        assert.ok(s.startsWith('\uFEFF'));
+        assert.ok(s.startsWith('\u{FEFF}'));
     });
 
     it('writes CSV with quoted fields', () => {
@@ -66,12 +66,12 @@ describe('serializeRows', () => {
 
     it('writes TSV with BOM', () => {
         const s = serializeRows([{ a: '1' }], 'tsv', false);
-        assert.ok(s.startsWith('\uFEFF'), 'TSV should start with BOM');
+        assert.ok(s.startsWith('\u{FEFF}'), 'TSV should start with BOM');
     });
 
     it('writes CSV header only when rows empty and columns provided', () => {
         const s = serializeRows([], 'csv', false, ['col1', 'col2']);
-        assert.ok(s.startsWith('\uFEFF'));
+        assert.ok(s.startsWith('\u{FEFF}'));
         const lines = s.trimEnd().split(/\r?\n/);
         assert.equal(lines.length, 1);
         assert.ok(lines[0].includes('"col1"'));
@@ -80,7 +80,7 @@ describe('serializeRows', () => {
 
     it('writes TSV header only when rows empty and columns provided', () => {
         const s = serializeRows([], 'tsv', false, ['h1', 'h2']);
-        assert.ok(s.startsWith('\uFEFF'));
+        assert.ok(s.startsWith('\u{FEFF}'));
         const lines = s.trimEnd().split(/\r?\n/);
         assert.equal(lines.length, 1);
         assert.match(lines[0], /h1\th2/);
@@ -95,12 +95,12 @@ describe('serializeRows', () => {
 describe('fetchDataExtensionFieldNames', () => {
     it('sorts by Ordinal and returns Names', async () => {
         const soap = {
-            retrieve: async (type, props, opts) => {
+            retrieve: async (type, properties, options) => {
                 assert.equal(type, 'DataExtensionField');
-                assert.deepEqual(props, ['Name', 'Ordinal']);
-                assert.equal(opts.filter.leftOperand, 'DataExtension.CustomerKey');
-                assert.equal(opts.filter.operator, 'equals');
-                assert.equal(opts.filter.rightOperand, 'MY_DE');
+                assert.deepEqual(properties, ['Name', 'Ordinal']);
+                assert.equal(options.filter.leftOperand, 'DataExtension.CustomerKey');
+                assert.equal(options.filter.operator, 'equals');
+                assert.equal(options.filter.rightOperand, 'MY_DE');
                 return {
                     Results: [
                         { Name: 'second', Ordinal: '2' },
@@ -127,7 +127,7 @@ describe('fetchDataExtensionFieldNames', () => {
 
 describe('exportDataExtensionToFile', () => {
     it('writes header-only CSV for empty DE when SOAP returns fields', async () => {
-        const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-export-empty-'));
+        const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-export-empty-'));
         try {
             const sdk = {
                 rest: {
@@ -137,9 +137,9 @@ describe('exportDataExtensionToFile', () => {
                     },
                 },
                 soap: {
-                    retrieve: async (type, props) => {
+                    retrieve: async (type, properties) => {
                         assert.equal(type, 'DataExtensionField');
-                        assert.deepEqual(props, ['Name', 'Ordinal']);
+                        assert.deepEqual(properties, ['Name', 'Ordinal']);
                         return {
                             Results: [
                                 { Name: 'Email', Ordinal: '1' },
@@ -150,7 +150,7 @@ describe('exportDataExtensionToFile', () => {
                 },
             };
             const { paths, rowCount } = await exportDataExtensionToFile(sdk, {
-                projectRoot: tmp,
+                projectRoot: temporary,
                 credentialName: 'cred',
                 buName: 'bu',
                 deKey: 'DE_KEY',
@@ -159,18 +159,18 @@ describe('exportDataExtensionToFile', () => {
             assert.equal(rowCount, 0);
             assert.equal(paths.length, 1);
             const body = await fs.readFile(paths[0], 'utf8');
-            assert.ok(body.startsWith('\uFEFF'));
+            assert.ok(body.startsWith('\u{FEFF}'));
             assert.ok(body.includes('"Email"'));
             assert.ok(body.includes('"Name"'));
             const lines = body.trimEnd().split(/\r?\n/);
             assert.equal(lines.length, 1);
         } finally {
-            await fs.rm(tmp, { recursive: true, force: true });
+            await fs.rm(temporary, { recursive: true, force: true });
         }
     });
 
     it('streams CSV rows via getBulkPages and returns paths + rowCount', async () => {
-        const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-export-stream-'));
+        const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-export-stream-'));
         try {
             const sdk = {
                 rest: {
@@ -195,7 +195,7 @@ describe('exportDataExtensionToFile', () => {
                 },
             };
             const { paths, rowCount } = await exportDataExtensionToFile(sdk, {
-                projectRoot: tmp,
+                projectRoot: temporary,
                 credentialName: 'cred',
                 buName: 'bu',
                 deKey: 'DE_KEY',
@@ -207,12 +207,12 @@ describe('exportDataExtensionToFile', () => {
             assert.ok(body.includes('"pk"'));
             assert.ok(body.includes('"1"'));
         } finally {
-            await fs.rm(tmp, { recursive: true, force: true });
+            await fs.rm(temporary, { recursive: true, force: true });
         }
     });
 
     it('splits CSV into two parts when maxRowsPerFile is reached', async () => {
-        const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-export-split-'));
+        const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-export-split-'));
         try {
             const sdk = {
                 rest: {
@@ -236,7 +236,7 @@ describe('exportDataExtensionToFile', () => {
                 },
             };
             const { paths, rowCount } = await exportDataExtensionToFile(sdk, {
-                projectRoot: tmp,
+                projectRoot: temporary,
                 credentialName: 'cred',
                 buName: 'bu',
                 deKey: 'DE_KEY',
@@ -246,7 +246,7 @@ describe('exportDataExtensionToFile', () => {
             assert.equal(rowCount, 3);
             assert.equal(paths.length, 2);
         } finally {
-            await fs.rm(tmp, { recursive: true, force: true });
+            await fs.rm(temporary, { recursive: true, force: true });
         }
     });
 });

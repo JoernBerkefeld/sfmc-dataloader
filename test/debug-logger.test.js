@@ -7,23 +7,33 @@ import path from 'node:path';
 import { initDebugLogger } from '../lib/debug-logger.mjs';
 
 describe('initDebugLogger', () => {
-    let tmp;
+    let temporary;
     before(async () => {
-        tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-debug-'));
+        temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-debug-'));
     });
 
     after(async () => {
-        await fs.rm(tmp, { recursive: true, force: true });
+        await fs.rm(temporary, { recursive: true, force: true });
     });
 
     it('creates logs/data directory', () => {
-        const logger = initDebugLogger(tmp, '1.2.3', ['node', 'mcdata.mjs', 'export', 'R1/DEV']);
-        assert.ok(fsSync.existsSync(path.join(tmp, 'logs', 'data')));
+        const logger = initDebugLogger(temporary, '1.2.3', [
+            'node',
+            'mcdata.mjs',
+            'export',
+            'R1/DEV',
+        ]);
+        assert.ok(fsSync.existsSync(path.join(temporary, 'logs', 'data')));
         assert.ok(fsSync.existsSync(logger.logPath));
     });
 
     it('creates log file with timestamped name', () => {
-        const logger = initDebugLogger(tmp, '1.2.3', ['node', 'mcdata.mjs', 'export', 'R1/DEV']);
+        const logger = initDebugLogger(temporary, '1.2.3', [
+            'node',
+            'mcdata.mjs',
+            'export',
+            'R1/DEV',
+        ]);
         const basename = path.basename(logger.logPath);
         assert.ok(basename.endsWith('.log'), 'should end with .log');
         assert.ok(basename.includes('T'), 'should contain ISO timestamp T separator');
@@ -31,7 +41,7 @@ describe('initDebugLogger', () => {
     });
 
     it('writes header with version and command', async () => {
-        const logger = initDebugLogger(tmp, '2.0.0', [
+        const logger = initDebugLogger(temporary, '2.0.0', [
             'node',
             'mcdata.mjs',
             'import',
@@ -46,7 +56,7 @@ describe('initDebugLogger', () => {
     });
 
     it('quotes arguments with spaces in header', async () => {
-        const logger = initDebugLogger(tmp, '2.0.0', [
+        const logger = initDebugLogger(temporary, '2.0.0', [
             'node',
             'mcdata.mjs',
             'import',
@@ -62,7 +72,12 @@ describe('initDebugLogger', () => {
     });
 
     it('write() appends lines to log file', async () => {
-        const logger = initDebugLogger(tmp, '1.0.0', ['node', 'mcdata.mjs', 'export', 'R1/DEV']);
+        const logger = initDebugLogger(temporary, '1.0.0', [
+            'node',
+            'mcdata.mjs',
+            'export',
+            'R1/DEV',
+        ]);
         logger.write('API REQUEST >> GET /test');
         logger.write('API RESPONSE << 200');
         const content = await fs.readFile(logger.logPath, 'utf8');

@@ -14,11 +14,11 @@ import {
 } from '../lib/config.mjs';
 
 describe('config', () => {
-    let tmp;
+    let temporary;
     before(async () => {
-        tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         await fs.writeFile(
-            path.join(tmp, '.mcdevrc.json'),
+            path.join(temporary, '.mcdevrc.json'),
             JSON.stringify({
                 credentials: {
                     R1: {
@@ -30,7 +30,7 @@ describe('config', () => {
             }),
         );
         await fs.writeFile(
-            path.join(tmp, '.mcdev-auth.json'),
+            path.join(temporary, '.mcdev-auth.json'),
             JSON.stringify({
                 R1: {
                     client_id: 'id',
@@ -42,11 +42,11 @@ describe('config', () => {
     });
 
     after(async () => {
-        await fs.rm(tmp, { recursive: true, force: true });
+        await fs.rm(temporary, { recursive: true, force: true });
     });
 
     it('loadMcdevProject reads JSON', () => {
-        const { mcdevrc, mcdevAuth } = loadMcdevProject(tmp);
+        const { mcdevrc, mcdevAuth } = loadMcdevProject(temporary);
         assert.equal(mcdevrc.credentials.R1.businessUnits.DEV, 123456);
         assert.equal(mcdevAuth.R1.client_id, 'id');
     });
@@ -56,7 +56,7 @@ describe('config', () => {
     });
 
     it('resolveCredentialAndMid builds MID', () => {
-        const { mcdevrc, mcdevAuth } = loadMcdevProject(tmp);
+        const { mcdevrc, mcdevAuth } = loadMcdevProject(temporary);
         const r = resolveCredentialAndMid(mcdevrc, mcdevAuth, 'R1', 'DEV');
         assert.equal(r.mid, 123456);
         const auth = buildSdkAuthObject(r.authCred, r.mid);
@@ -71,10 +71,10 @@ describe('config', () => {
 
 describe('loadProjectConfig', () => {
     it('loads mcdata-only pair', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
             await fs.writeFile(
-                path.join(dir, '.mcdatarc.json'),
+                path.join(directory, '.mcdatarc.json'),
                 JSON.stringify({
                     credentials: {
                         R1: { eid: 1, businessUnits: { _ParentBU_: 1, DEV: 2 } },
@@ -82,7 +82,7 @@ describe('loadProjectConfig', () => {
                 }),
             );
             await fs.writeFile(
-                path.join(dir, '.mcdata-auth.json'),
+                path.join(directory, '.mcdata-auth.json'),
                 JSON.stringify({
                     R1: {
                         client_id: 'id',
@@ -91,25 +91,25 @@ describe('loadProjectConfig', () => {
                     },
                 }),
             );
-            const { mcdevrc, mcdevAuth } = loadProjectConfig(dir, { stderr: () => {} });
+            const { mcdevrc, mcdevAuth } = loadProjectConfig(directory, { stderr: () => {} });
             assert.equal(mcdevrc.credentials.R1.businessUnits.DEV, 2);
             assert.equal(mcdevAuth.R1.client_id, 'id');
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('warns when mcdev pair wins and mcdata files exist', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
             await fs.writeFile(
-                path.join(dir, '.mcdevrc.json'),
+                path.join(directory, '.mcdevrc.json'),
                 JSON.stringify({
                     credentials: { R1: { businessUnits: { DEV: 123456 } } },
                 }),
             );
             await fs.writeFile(
-                path.join(dir, '.mcdev-auth.json'),
+                path.join(directory, '.mcdev-auth.json'),
                 JSON.stringify({
                     R1: {
                         client_id: 'id',
@@ -118,41 +118,45 @@ describe('loadProjectConfig', () => {
                     },
                 }),
             );
-            await fs.writeFile(path.join(dir, '.mcdatarc.json'), '{}');
+            await fs.writeFile(path.join(directory, '.mcdatarc.json'), '{}');
             const warnings = [];
-            loadProjectConfig(dir, { stderr: (msg) => warnings.push(msg) });
+            loadProjectConfig(directory, {
+                stderr: (message) => {
+                    warnings.push(message);
+                },
+            });
             assert.ok(warnings.includes(WARN_MCDATA_SUPERSEDED));
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('throws on incomplete mcdev pair (rc only)', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
-            await fs.writeFile(path.join(dir, '.mcdevrc.json'), '{}');
-            assert.throws(() => loadProjectConfig(dir), /Missing.*mcdev-auth/);
+            await fs.writeFile(path.join(directory, '.mcdevrc.json'), '{}');
+            assert.throws(() => loadProjectConfig(directory), /Missing.*mcdev-auth/);
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('throws on incomplete mcdata pair (rc only)', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
-            await fs.writeFile(path.join(dir, '.mcdatarc.json'), '{}');
-            assert.throws(() => loadProjectConfig(dir), /Missing.*mcdata-auth/);
+            await fs.writeFile(path.join(directory, '.mcdatarc.json'), '{}');
+            assert.throws(() => loadProjectConfig(directory), /Missing.*mcdata-auth/);
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 
     it('throws when no config present', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
         try {
-            assert.throws(() => loadProjectConfig(dir), /No project config found/);
+            assert.throws(() => loadProjectConfig(directory), /No project config found/);
         } finally {
-            await fs.rm(dir, { recursive: true, force: true });
+            await fs.rm(directory, { recursive: true, force: true });
         }
     });
 });
@@ -178,7 +182,12 @@ describe('buildSdkOptions', () => {
 
     it('includes eventHandlers when logger is provided', () => {
         const logs = [];
-        const mockLogger = { write: (text) => logs.push(text), logPath: '/tmp/test.log' };
+        const mockLogger = {
+            write: (text) => {
+                logs.push(text);
+            },
+            logPath: '/tmp/test.log',
+        };
         const options = buildSdkOptions(mockLogger);
         assert.equal(options.requestAttempts, 3);
         assert.equal(options.retryOnConnectionError, true);
@@ -191,7 +200,12 @@ describe('buildSdkOptions', () => {
 
     it('logRequest writes to logger', () => {
         const logs = [];
-        const mockLogger = { write: (text) => logs.push(text), logPath: '/tmp/test.log' };
+        const mockLogger = {
+            write: (text) => {
+                logs.push(text);
+            },
+            logPath: '/tmp/test.log',
+        };
         const options = buildSdkOptions(mockLogger);
         options.eventHandlers.logRequest({
             method: 'POST',
@@ -204,7 +218,12 @@ describe('buildSdkOptions', () => {
 
     it('logResponse writes to logger', () => {
         const logs = [];
-        const mockLogger = { write: (text) => logs.push(text), logPath: '/tmp/test.log' };
+        const mockLogger = {
+            write: (text) => {
+                logs.push(text);
+            },
+            logPath: '/tmp/test.log',
+        };
         const options = buildSdkOptions(mockLogger);
         options.eventHandlers.logResponse({ status: 200, data: { result: 'ok' } });
         assert.ok(logs.some((l) => l.includes('API RESPONSE << 200')));
@@ -213,7 +232,12 @@ describe('buildSdkOptions', () => {
 
     it('logResponse formats body with newline and 2-space indent', () => {
         const logs = [];
-        const mockLogger = { write: (text) => logs.push(text), logPath: '/tmp/test.log' };
+        const mockLogger = {
+            write: (text) => {
+                logs.push(text);
+            },
+            logPath: '/tmp/test.log',
+        };
         const options = buildSdkOptions(mockLogger);
         options.eventHandlers.logResponse({ status: 200, data: { foo: 'bar', baz: 123 } });
         const bodyLog = logs.find((l) => l.startsWith('RESPONSE BODY <<'));

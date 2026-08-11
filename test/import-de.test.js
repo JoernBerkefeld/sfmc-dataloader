@@ -18,14 +18,14 @@ import {
  * @returns {string[]}
  */
 /* eslint-disable no-console -- test spy replaces console.warn */
-function captureConsoleWarn(fn) {
+function captureConsoleWarn(function_) {
     const lines = [];
     const orig = console.warn;
     console.warn = (first) => {
         lines.push(String(first));
     };
     try {
-        fn();
+        function_();
     } finally {
         console.warn = orig;
     }
@@ -47,7 +47,7 @@ describe('importRowsForDe', () => {
                 },
             },
         };
-        const rows = Array.from({ length: 3 }, (_, i) => ({ id: String(i) }));
+        const rows = Array.from({ length: 3 }, (_, index) => ({ id: String(index) }));
         const result = await importRowsForDe(sdk, {
             deKey: 'K',
             rows,
@@ -121,13 +121,13 @@ describe('importRowsStreamingForDe', () => {
             },
         };
         // eslint-disable-next-line unicorn/consistent-function-scoping
-        async function* src() {
+        async function* source() {
             yield { a: '1' };
             yield { a: '2' };
         }
         const result = await importRowsStreamingForDe(sdk, {
             deKey: 'K',
-            rowSource: src(),
+            rowSource: source(),
             mode: 'insert',
             totalMemoryBatches: 1,
         });
@@ -176,14 +176,14 @@ describe('importRowsStreamingForDe', () => {
             },
         };
         // eslint-disable-next-line unicorn/consistent-function-scoping
-        async function* src() {
-            for (let i = 0; i < 5; i++) {
-                yield { i: String(i) };
+        async function* source() {
+            for (let index = 0; index < 5; index++) {
+                yield { i: String(index) };
             }
         }
         const result = await importRowsStreamingForDe(sdk, {
             deKey: 'K',
-            rowSource: src(),
+            rowSource: source(),
             mode: 'insert',
             maxRowsPerBatch: 2,
             totalMemoryBatches: 3,
@@ -195,12 +195,12 @@ describe('importRowsStreamingForDe', () => {
 });
 
 describe('importFromFile', () => {
-    let tmp;
+    let temporary;
     before(async () => {
-        tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-import-'));
+        temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-import-'));
     });
     after(async () => {
-        await fs.rm(tmp, { recursive: true, force: true });
+        await fs.rm(temporary, { recursive: true, force: true });
     });
 
     const stubSdk = {
@@ -215,7 +215,7 @@ describe('importFromFile', () => {
     };
 
     it('rejects empty CSV', async () => {
-        const p = path.join(tmp, 'empty.csv');
+        const p = path.join(temporary, 'empty.csv');
         await fs.writeFile(p, '', 'utf8');
         await assert.rejects(
             () =>
@@ -229,8 +229,8 @@ describe('importFromFile', () => {
     });
 
     it('rejects BOM-only CSV', async () => {
-        const p = path.join(tmp, 'bom.csv');
-        await fs.writeFile(p, '\uFEFF', 'utf8');
+        const p = path.join(temporary, 'bom.csv');
+        await fs.writeFile(p, '\u{FEFF}', 'utf8');
         await assert.rejects(
             () =>
                 importFromFile(stubSdk, {
@@ -243,7 +243,7 @@ describe('importFromFile', () => {
     });
 
     it('rejects header-only CSV', async () => {
-        const p = path.join(tmp, 'header.csv');
+        const p = path.join(temporary, 'header.csv');
         await fs.writeFile(p, 'a,b,c\n', 'utf8');
         await assert.rejects(
             () =>
@@ -257,7 +257,7 @@ describe('importFromFile', () => {
     });
 
     it('rejects header-only TSV', async () => {
-        const p = path.join(tmp, 'header.tsv');
+        const p = path.join(temporary, 'header.tsv');
         await fs.writeFile(p, 'a\tb\tc\n', 'utf8');
         await assert.rejects(
             () =>
@@ -271,7 +271,7 @@ describe('importFromFile', () => {
     });
 
     it('rejects empty JSON array', async () => {
-        const p = path.join(tmp, 'empty.json');
+        const p = path.join(temporary, 'empty.json');
         await fs.writeFile(p, '[]', 'utf8');
         await assert.rejects(
             () =>

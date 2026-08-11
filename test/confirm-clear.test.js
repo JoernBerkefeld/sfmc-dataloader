@@ -6,9 +6,9 @@ import { confirmClearBeforeImport } from '../lib/confirm-clear.mjs';
 function makeOutput() {
     const chunks = [];
     const stream = new Writable({
-        write(chunk, _enc, cb) {
+        write(chunk, _enc, callback) {
             chunks.push(String(chunk));
-            cb();
+            callback();
         },
     });
     return { stream, text: () => chunks.join('') };
@@ -57,11 +57,11 @@ describe('confirmClearBeforeImport', () => {
             stdin: input,
             stdout: output,
         });
-        const msg = text();
-        assert.ok(msg.includes('DE_A'), 'should list DE_A');
-        assert.ok(msg.includes('DE_B'), 'should list DE_B');
+        const message = text();
+        assert.ok(message.includes('DE_A'), 'should list DE_A');
+        assert.ok(message.includes('DE_B'), 'should list DE_B');
         assert.ok(
-            !msg.includes('Business Unit'),
+            !message.includes('Business Unit'),
             'single-BU mode should not mention Business Unit count',
         );
     });
@@ -81,11 +81,11 @@ describe('confirmClearBeforeImport', () => {
             stdin: input,
             stdout: output,
         });
-        const msg = text();
-        assert.ok(msg.includes('2 Business Unit'), 'should mention 2 business units');
-        assert.ok(msg.includes('MyCred/QA'), 'should list QA target');
-        assert.ok(msg.includes('MyCred/Prod'), 'should list Prod target');
-        assert.ok(msg.includes('DE_A'), 'should list the DE key under each BU');
+        const message = text();
+        assert.ok(message.includes('2 Business Unit'), 'should mention 2 business units');
+        assert.ok(message.includes('MyCred/QA'), 'should list QA target');
+        assert.ok(message.includes('MyCred/Prod'), 'should list Prod target');
+        assert.ok(message.includes('DE_A'), 'should list the DE key under each BU');
     });
 
     it('aborts when user does not type YES', async () => {

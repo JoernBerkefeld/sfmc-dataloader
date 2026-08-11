@@ -28,7 +28,9 @@ describe('cli import — clear-before-import skip when DE is empty', () => {
 
         // Simulate the skip logic used in cli.mjs
         const clearWasCalled = [];
-        const mockClear = async (deKey) => clearWasCalled.push(deKey);
+        const mockClear = async (deKey) => {
+            clearWasCalled.push(deKey);
+        };
 
         if (count === 0) {
             // Skip — this is what cli.mjs does
@@ -52,7 +54,9 @@ describe('cli import — clear-before-import skip when DE is empty', () => {
         assert.equal(count, 50);
 
         const clearWasCalled = [];
-        const mockClear = async (deKey) => clearWasCalled.push(deKey);
+        const mockClear = async (deKey) => {
+            clearWasCalled.push(deKey);
+        };
 
         if (count === 0) {
             // Skip

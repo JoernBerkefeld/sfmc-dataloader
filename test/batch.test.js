@@ -8,7 +8,9 @@ import {
 
 describe('chunkItemsForPayload', () => {
     it('respects max object count', () => {
-        const rows = Array.from({ length: MAX_OBJECTS_PER_BATCH + 100 }, (_, i) => ({ id: i }));
+        const rows = Array.from({ length: MAX_OBJECTS_PER_BATCH + 100 }, (_, index) => ({
+            id: index,
+        }));
         const chunks = chunkItemsForPayload(rows);
         assert.ok(chunks.every((c) => c.length <= MAX_OBJECTS_PER_BATCH));
         const total = chunks.reduce((s, c) => s + c.length, 0);
