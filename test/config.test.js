@@ -3,6 +3,8 @@ import { describe, it, before, after } from 'node:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import SDK from 'sfmc-sdk';
+import { axiosInstance, RestError } from 'sfmc-sdk/util';
 import {
     loadMcdevProject,
     loadProjectConfig,
@@ -12,6 +14,23 @@ import {
     buildSdkAuthObject,
     buildSdkOptions,
 } from '../lib/config.mjs';
+
+const readProjectFile = (file) => fs.readFile(new URL(`../${file}`, import.meta.url), 'utf8');
+
+describe('Node runtime support', () => {
+    it('keeps the manifest, lockfile, README, and CI aligned with dependency requirements', async () => {
+        const manifest = JSON.parse(await readProjectFile('package.json'));
+        const lockfile = JSON.parse(await readProjectFile('package-lock.json'));
+        const nodeRange = '^22.22.2 || >=24.15.0';
+        assert.equal(manifest.engines.node, nodeRange);
+        assert.equal(lockfile.packages[''].engines.node, nodeRange);
+        assert.equal(lockfile.packages['node_modules/sfmc-sdk'].engines.node, nodeRange);
+        assert.equal(lockfile.packages['node_modules/mcdev'].engines.node, nodeRange);
+        assert.ok((await readProjectFile('README.md')).includes(`- Node.js \`${nodeRange}\``));
+        const workflow = await readProjectFile('.github/workflows/code-test.yml');
+        assert.match(workflow, /node: \['22\.22\.2', '24\.15\.0', 25\]/u);
+    });
+});
 
 describe('config', () => {
     let temporary;
@@ -158,6 +177,88 @@ describe('loadProjectConfig', () => {
         } finally {
             await fs.rm(directory, { recursive: true, force: true });
         }
+    });
+});
+
+describe('SDK authentication compatibility', () => {
+    it('accepts newly introduced scopes and preserves token requests', async (t) => {
+        const originalAdapter = axiosInstance.defaults.adapter;
+        t.after(() => {
+            axiosInstance.defaults.adapter = originalAdapter;
+        });
+        const scopes = ['data_extensions_read', 'future_sfmc_scope_read'];
+        let tokenRequests = 0;
+        axiosInstance.defaults.adapter = async (config) => {
+            tokenRequests++;
+            assert.equal(config.url, '/v2/token');
+            assert.deepEqual(JSON.parse(config.data), {
+                grant_type: 'client_credentials',
+                client_id: 'id',
+                client_secret: 'secret',
+                account_id: 123456,
+                scope: scopes.join(' '),
+            });
+            return {
+                status: 200,
+                statusText: 'OK',
+                headers: {},
+                config,
+                data: {
+                    access_token: 'test-token',
+                    expires_in: 1200,
+                    scope: scopes.join(' '),
+                },
+            };
+        };
+        const auth = buildSdkAuthObject(
+            {
+                client_id: 'id',
+                client_secret: 'secret',
+                auth_url: 'https://mcabcdefghijklmnopqrstuvwx12.auth.marketingcloudapis.com/',
+            },
+            123456,
+        );
+        const sdk = new SDK({ ...auth, scope: scopes }, buildSdkOptions());
+        assert.ok(!sdk.auth.getSupportedScopes().includes(scopes[1]));
+        const token = await sdk.auth.getAccessToken();
+        assert.equal(token.access_token, 'test-token');
+        assert.equal(token.scope, scopes.join(' '));
+        assert.equal(tokenRequests, 1);
+    });
+
+    it('continues to surface genuine token endpoint failures', async (t) => {
+        const originalAdapter = axiosInstance.defaults.adapter;
+        t.after(() => {
+            axiosInstance.defaults.adapter = originalAdapter;
+        });
+        axiosInstance.defaults.adapter = async () => {
+            throw Object.assign(new Error('Unauthorized'), {
+                response: {
+                    status: 401,
+                    data: {
+                        error: 'invalid_client',
+                        error_description: 'Invalid test credentials',
+                    },
+                },
+            });
+        };
+        const sdk = new SDK(
+            buildSdkAuthObject(
+                {
+                    client_id: 'id',
+                    client_secret: 'secret',
+                    auth_url: 'https://mcabcdefghijklmnopqrstuvwx12.auth.marketingcloudapis.com/',
+                },
+                123456,
+            ),
+            buildSdkOptions(),
+        );
+        await assert.rejects(sdk.auth.getAccessToken(), (error) => {
+            assert.ok(error instanceof RestError);
+            assert.equal(error.code, 'invalid_client');
+            assert.equal(error.message, 'Invalid test credentials');
+            return true;
+        });
     });
 });
 

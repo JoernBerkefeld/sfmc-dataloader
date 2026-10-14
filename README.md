@@ -49,7 +49,7 @@ Use `--yes` to overwrite existing `.mcdatarc.json` / `.mcdata-auth.json` without
 
 ## Requirements
 
-- Node.js `^20.19.0 || ^22.13.0 || >=24` (aligned with `sfmc-sdk`)
+- Node.js `^22.22.2 || >=24.15.0` (aligned with `sfmc-sdk`)
 - An SFMC installed package with Data Extension access
 - **Optional:** `mcdev` `>=7` — listed in `optionalDependencies`; install globally if you also use mcdev for other metadata types
 
