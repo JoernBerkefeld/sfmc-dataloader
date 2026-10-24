@@ -94,7 +94,7 @@ describe('runMcdataInit', () => {
         businessUnits: { _ParentBU_: 100, Dev: 200 },
     };
 
-    async function initWithFakeBu(directory, extraOptions = {}) {
+    async function initWithFakeBu(directory) {
         return runMcdataInit({
             projectRoot: directory,
             isTTY: false,
@@ -107,7 +107,6 @@ describe('runMcdataInit', () => {
             stdout: () => {},
             stderr: () => {},
             _buFetcher: async () => FIXED_BU_RESULT,
-            ...extraOptions,
         });
     }
 

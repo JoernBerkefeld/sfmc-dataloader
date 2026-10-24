@@ -174,10 +174,12 @@ describe('exportDataExtensionToFile', () => {
                             maxRowsPerFile: 1,
                             beforeOpen: async (outPath) => {
                                 checked.push(outPath);
-                                if (empty || checked.length === 2) {
-                                    await fs.writeFile(outPath, 'protected bytes');
-                                    throw blocked;
+                                if (!(empty || checked.length === 2)) {
+                                    return;
                                 }
+
+                                await fs.writeFile(outPath, 'protected bytes');
+                                throw blocked;
                             },
                         }),
                     ),
