@@ -6,10 +6,10 @@ Works **standalone** — no mcdev installation required — and also integrates 
 
 ## Config files
 
-| File pair | When to use |
-|---|---|
-| `.mcdevrc.json` + `.mcdev-auth.json` | Existing mcdev projects — **always wins** when both pairs present |
-| `.mcdatarc.json` + `.mcdata-auth.json` | Standalone setup; created by `mcdata init` |
+| File pair                              | When to use                                                       |
+| -------------------------------------- | ----------------------------------------------------------------- |
+| `.mcdevrc.json` + `.mcdev-auth.json`   | Existing mcdev projects — **always wins** when both pairs present |
+| `.mcdatarc.json` + `.mcdata-auth.json` | Standalone setup; created by `mcdata init`                        |
 
 **Precedence:** When `.mcdevrc.json` and `.mcdev-auth.json` both exist they are loaded; any mcdata files are ignored (a warning is printed to stderr). Both file pairs share the same logical shape (`credentials.<name>.businessUnits`), so all commands work with either layout.
 
@@ -73,6 +73,8 @@ Writes to `./data/MyCred/MyBU/<encodedKey>.mcdata.<timestamp>.csv` (TSV/JSON wit
 
 Use **`--git`** for a stable name without a timestamp: `<encodedKey>.mcdata.csv` (useful for version control).
 
+CSV/TSV exports stream rows with backpressure: slow file writes pause further production rather than accumulating the whole export in memory. Each output part is finished before moving to the next, and success is reported only after the final file write completes. A stream or API failure stops the export; partial output files may remain.
+
 ### Export — multiple BUs at once
 
 Use `--from` (repeatable) instead of the positional argument to export the same DE(s) from several BUs in one command:
@@ -98,6 +100,18 @@ Import from explicit paths (the DE key is taken from the `.mcdata.` basename):
 ```bash
 mcdata import MyCred/MyBU --file ./data/MyCred/MyBU/encoded%2Bkey.mcdata.2026-04-06T12-00-00.000Z.csv
 ```
+
+#### Input validation and exact values
+
+Before the first CLEAR or upload, a single-BU CLI import resolves and validates **all selected DEs and files**, including repeated `--file` inputs and imports without `--clear-before-import`. Cross-BU file imports validate all selected sources; API-mode cross-BU imports download and validate every requested source before any target is cleared or uploaded to.
+
+- CSV/TSV files are scanned to the end with strict quote and column-count checks; duplicate column headers are rejected. A leading UTF-8 BOM is handled before quoted headers or continuation data. CSV syntax quotes are decoded without stripping literal quotes from headers or values; empty cells, Unicode, quoted separators and multiline values are preserved as strings.
+- Selected multipart runs must start at `part1`, have contiguous, unique part numbers, and not mix numbered and unnumbered files. Every selected part must be readable. The first part supplies headers; later parts contain data only. A header-only first part is valid when later parts contain rows; a complete set with no data rows is rejected.
+- Validation supplies the headers and total record count used for streaming import and batch progress, avoiding a separate recount scan. CSV/TSV preflight does not retain all rows in memory. JSON inputs retain support for a row array or `{ "items": [...] }` and must also contain data.
+
+Keep selected source files unchanged until the import finishes: preflight is not a snapshot or a lock against external edits. Backups are checked against the selected sources so the job cannot overwrite its own inputs, including through aliases or hard links. Cross-BU imports prepare all required target snapshots before the first target mutation, preserve logical records when converting multipart sources, and refuse to overwrite existing backup/snapshot destinations.
+
+Preflight prevents known input/preparation failures from causing CLEAR or upload effects; it is **not a transaction or rollback guarantee**. Later API or operational failures can leave cleared targets and earlier accepted submissions. Failure diagnostics distinguish accepted rows/requests from confirmed completion; a failed request may also have reached the server. There is no automatic rollback or job-level restart, and async acceptance alone does not mean the rows completed successfully.
 
 #### Upsert vs insert
 
@@ -160,18 +174,18 @@ Interactive: type `YES` when prompted. In CI, add `--i-accept-clear-data-risk` a
 
 ## Options
 
-| Option                        | Description                                                                                                           |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `-p, --project`               | Project root (default: cwd)                                                                                           |
-| `--format`                    | `csv` (default), `tsv`, or `json` — **export only**; import format is detected from the file extension               |
-| `--git`                       | Stable export filenames: `<key>.mcdata.<ext>` (no timestamp segment)                                                  |
-| `--mode`                      | `upsert` (default) or `insert` — async bulk REST API only                                                             |
-| `--from <cred>/<bu>`          | Export: source BU (repeatable). Import API mode: single source BU (use with `--to` and `--de`)                        |
-| `--to <cred>/<bu>`            | Import: target BU (repeatable). API mode: use with `--from`/`--de`. File mode: use with `--file` (no `--from` needed) |
-| `--backup-before-import`      | Export target DE data as a timestamped backup before import (no prompt; always timestamped)                           |
-| `--no-backup-before-import`   | Skip the backup prompt even in interactive (TTY) sessions                                                             |
-| `--clear-before-import`       | SOAP `ClearData` before REST import                                                                                   |
-| `--i-accept-clear-data-risk`  | Non-interactive consent for clear                                                                                     |
+| Option                       | Description                                                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `-p, --project`              | Project root (default: cwd)                                                                                           |
+| `--format`                   | `csv` (default), `tsv`, or `json` — **export only**; import format is detected from the file extension                |
+| `--git`                      | Stable export filenames: `<key>.mcdata.<ext>` (no timestamp segment)                                                  |
+| `--mode`                     | `upsert` (default) or `insert` — async bulk REST API only                                                             |
+| `--from <cred>/<bu>`         | Export: source BU (repeatable). Import API mode: single source BU (use with `--to` and `--de`)                        |
+| `--to <cred>/<bu>`           | Import: target BU (repeatable). API mode: use with `--from`/`--de`. File mode: use with `--file` (no `--from` needed) |
+| `--backup-before-import`     | Export target DE data as a timestamped backup before import (no prompt; always timestamped)                           |
+| `--no-backup-before-import`  | Skip the backup prompt even in interactive (TTY) sessions                                                             |
+| `--clear-before-import`      | SOAP `ClearData` before REST import                                                                                   |
+| `--i-accept-clear-data-risk` | Non-interactive consent for clear                                                                                     |
 
 Log lines include **row counts** and show file paths as **absolute paths in double-quotes** (e.g. `"C:\data\MyCred\DEV\Contact.mcdata.csv"`) so they are clickable in VS Code's integrated terminal.
 
@@ -179,8 +193,10 @@ Log lines include **row counts** and show file paths as **absolute paths in doub
 
 Import from `sfmc-dataloader` for use in other tools (for example the **SFMC Data Loader** VS Code extension):
 
-| Export | Purpose |
-|--------|---------|
+`importFromFile()` validates the entire file before submitting rows and reuses the validated record count. The lower-level `importRowsStreamingForDe()` accepts an arbitrary row iterator; it does not promise file preflight. Both submission helpers report accepted requests, not confirmed asynchronous completion.
+
+| Export                                     | Purpose                                                                                                                                                                                                                                |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `fetchDeList(projectRoot, credential, bu)` | Returns all Data Extension **names** and **customer keys** for one BU via SOAP `retrieveBulk` (pagination handled by **sfmc-sdk**). Not a CLI command — intended for in-process callers that already have mcdev/mcdata config on disk. |
 
 ## License

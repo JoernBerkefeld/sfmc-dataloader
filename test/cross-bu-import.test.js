@@ -1,10 +1,22 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { crossBuImport } from '../lib/cross-bu-import.mjs';
+import { registerHooks } from 'node:module';
+import { readRowsFromFile } from '../lib/read-rows.mjs';
+
+const sdkModule = `export default class SDK { constructor(auth) { return globalThis.__crossBuSdk(auth); } }`;
+registerHooks({
+    resolve(specifier, context, nextResolve) {
+        return specifier === 'sfmc-sdk'
+            ? { url: `data:text/javascript,${encodeURIComponent(sdkModule)}`, shortCircuit: true }
+            : nextResolve(specifier, context);
+    },
+});
+const { crossBuImport } = await import('../lib/cross-bu-import.mjs');
 import { buildExportBasename, parseExportBasename } from '../lib/filename.mjs';
-import os from 'node:os';
+import { createFixtureRoot } from './fixture-root.js';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 
 const mcdevrc = {
     credentials: {
@@ -26,13 +38,510 @@ const mcdevAuth = {
     },
 };
 
+function captureCrossBu(
+    t,
+    download = async function* () {
+        yield { pageItems: [{ keys: { id: 'source' }, values: { value: 'one' } }] };
+    },
+    operations = {},
+) {
+    const effects = [];
+    // eslint-disable-next-line unicorn/no-global-object-property-assignment -- Isolated SDK constructor seam, restored after each test.
+    globalThis.__crossBuSdk = (auth) => ({
+        rest: {
+            get: async () => ({ count: operations.count ?? 10 }),
+            put: async (route, body) => {
+                effects.push({ type: 'upload', mid: auth.account_id, route, body });
+                return (await operations.upload?.(auth.account_id, body)) ?? {};
+            },
+            getBulk: async () => {
+                throw new Error('Unbounded download forbidden');
+            },
+            getBulkPages: async function* (route) {
+                effects.push({ type: 'download', mid: auth.account_id, route });
+                yield* download(route, auth.account_id);
+            },
+        },
+        soap: {
+            retrieve: async () => ({ Results: [{ Name: 'id', Ordinal: 1 }] }),
+            perform: async () => {
+                effects.push({ type: 'clear', mid: auth.account_id });
+                await operations.clear?.(auth.account_id);
+            },
+        },
+    });
+    t.after(() => {
+        delete globalThis.__crossBuSdk;
+    });
+    t.mock.method(console, 'log', () => {});
+    t.mock.method(console, 'warn', () => {});
+    t.mock.method(console, 'error', () => {});
+    return effects;
+}
+
+function importOptions(projectRoot, extra = {}) {
+    return {
+        projectRoot,
+        mcdevrc,
+        mcdevAuth,
+        targets: [
+            { credential: 'MyCred', bu: 'QA' },
+            { credential: 'MyCred', bu: 'Prod' },
+        ],
+        format: 'csv',
+        mode: 'upsert',
+        backupBeforeImport: false,
+        clearBeforeImport: true,
+        acceptRiskFlag: true,
+        isTTY: false,
+        ...extra,
+    };
+}
+
+describe('crossBuImport — global preparation', () => {
+    it('rejects relative and filesystem-root OS temp paths before staging', async (t) => {
+        const effects = captureCrossBu(t);
+        for (const temporaryDirectory of ['relative-temp', path.parse(process.cwd()).root]) {
+            const mocked = t.mock.method(os, 'tmpdir', () => temporaryDirectory);
+            await assert.rejects(
+                crossBuImport(
+                    importOptions('unused', {
+                        sourceCred: 'MyCred',
+                        sourceBu: 'Dev',
+                        deKeys: ['A'],
+                    }),
+                ),
+                /absolute, non-root OS temp directory/u,
+            );
+            mocked.mock.restore();
+        }
+        assert.deepEqual(effects, []);
+    });
+
+    it('uses the OS temp directory and retains an owned API stage', async (t) => {
+        const temporaryDirectory = os.tmpdir();
+        const mkdtemp = fs.mkdtemp.bind(fs);
+        let stage;
+        t.mock.method(fs, 'mkdtemp', async (prefix) => {
+            assert.equal(prefix, path.join(temporaryDirectory, 'mcdata-cross-bu-'));
+            stage = await mkdtemp(prefix);
+            return stage;
+        });
+        captureCrossBu(t, async function* () {
+            yield* [];
+            throw new Error('synthetic staging stop');
+        });
+        await assert.rejects(
+            crossBuImport(
+                importOptions('unused', { sourceCred: 'MyCred', sourceBu: 'Dev', deKeys: ['A'] }),
+            ),
+            /synthetic staging stop/u,
+        );
+        assert.match(
+            await fs.readFile(path.join(stage, '.stage-owner'), 'utf8'),
+            /^[a-f\d-]{36}$/u,
+        );
+    });
+
+    for (const clearBeforeImport of [true, false]) {
+        it(`rejects the last malformed file before backup or mutation (CLEAR ${clearBeforeImport})`, async (t) => {
+            const root = await createFixtureRoot('cbi-global-');
+            const first = path.join(root, 'A.mcdata.csv');
+            const last = path.join(root, 'Z.mcdata.csv');
+            await fs.writeFile(first, 'id,value\n1,valid\n');
+            await fs.writeFile(last, 'id,value\n2,valid\n3,invalid,extra\n');
+            const effects = captureCrossBu(t);
+            await assert.rejects(
+                () =>
+                    crossBuImport(
+                        importOptions(root, {
+                            filePaths: [first, last],
+                            backupBeforeImport: true,
+                            clearBeforeImport,
+                        }),
+                    ),
+                /Row length|columns|fields/,
+            );
+            assert.deepEqual(effects, []);
+        });
+    }
+    for (const failure of ['download', 'empty']) {
+        it(`stages all API sources and rejects later ${failure} before target effects`, async (t) => {
+            const root = await createFixtureRoot('cbi-api-stage-');
+            const effects = captureCrossBu(t, async function* (route) {
+                if (route.includes('Z')) {
+                    if (failure === 'download') {
+                        throw new Error('synthetic later download');
+                    }
+                    return;
+                }
+                yield { pageItems: [{ keys: { id: 'one' }, values: {} }] };
+            });
+            await assert.rejects(
+                () =>
+                    crossBuImport(
+                        importOptions(root, {
+                            sourceCred: 'MyCred',
+                            sourceBu: 'Dev',
+                            deKeys: ['A', 'Z'],
+                            backupBeforeImport: true,
+                        }),
+                    ),
+                failure === 'download' ? /synthetic later download/ : /no data rows/i,
+            );
+            assert.equal(effects.length, 2);
+            assert.ok(effects.every((effect) => effect.type === 'download' && effect.mid === 111));
+        });
+    }
+    it('prepares format-correct multipart snapshots and identical ordered target uploads', async (t) => {
+        const root = await createFixtureRoot('cbi-multipart-');
+        const first = path.join(root, 'A.mcdata.part1.csv');
+        const last = path.join(root, 'A.mcdata.part2.csv');
+        await fs.writeFile(first, 'id,value\n1,"first\nline"');
+        await fs.writeFile(last, '2,"second,value"');
+        const effects = captureCrossBu(t);
+        assert.equal(
+            await crossBuImport(importOptions(root, { filePaths: [first, last], format: 'tsv' })),
+            false,
+        );
+        assert.deepEqual(
+            effects.map(({ type, mid }) => [type, mid]),
+            [
+                ['clear', 222],
+                ['upload', 222],
+                ['clear', 333],
+                ['upload', 333],
+            ],
+        );
+        assert.deepEqual(effects[1].body, effects[3].body);
+        for (const bu of ['QA', 'Prod']) {
+            const directory = path.join(root, 'data', 'MyCred', bu);
+            const files = await fs.readdir(directory);
+            assert.equal(files.length, 1);
+            assert.deepEqual(await readRowsFromFile(path.join(directory, files[0]), 'tsv'), [
+                { id: '1', value: 'first\nline' },
+                { id: '2', value: 'second,value' },
+            ]);
+        }
+    });
+    it('guards backups against the complete frozen set, including another DE source', async (t) => {
+        const root = await createFixtureRoot('cbi-backup-collision-');
+        const directory = path.join(root, 'data', 'MyCred', 'QA');
+        await fs.mkdir(directory, { recursive: true });
+        const first = path.join(root, 'A.mcdata.csv');
+        const last = path.join(root, 'Z.mcdata.csv');
+        const bytes = 'id,value\n1,selected\n';
+        await fs.writeFile(first, bytes);
+        await fs.writeFile(last, bytes);
+        const collision = path.join(
+            directory,
+            buildExportBasename('A', '2026-01-01T00-00-00.000Z', 'csv', false),
+        );
+        await fs.link(last, collision);
+        const effects = captureCrossBu(t);
+        t.mock.method(Date.prototype, 'toISOString', () => '2026-01-01T00:00:00.000Z');
+        await assert.rejects(
+            () =>
+                crossBuImport(
+                    importOptions(root, {
+                        filePaths: [first, last],
+                        backupBeforeImport: true,
+                    }),
+                ),
+            /collides/,
+        );
+        assert.equal(await fs.readFile(last, 'utf8'), bytes);
+        assert.ok(effects.every((effect) => effect.type === 'download'));
+    });
+    it('finishes every snapshot before CLEAR, rejecting a later snapshot write failure', async (t) => {
+        const root = await createFixtureRoot('cbi-snapshot-failure-');
+        const source = path.join(root, 'A.mcdata.csv');
+        await fs.writeFile(source, 'id\n1\n');
+        await fs.mkdir(path.join(root, 'data', 'MyCred'), { recursive: true });
+        await fs.writeFile(path.join(root, 'data', 'MyCred', 'Prod'), 'not a directory');
+        const effects = captureCrossBu(t);
+        await assert.rejects(
+            () => crossBuImport(importOptions(root, { filePaths: [source] })),
+            /EEXIST|ENOTDIR/,
+        );
+        assert.deepEqual(effects, []);
+    });
+    it('rejects a snapshot hardlink to any frozen source without truncation or target effects', async (t) => {
+        const root = await createFixtureRoot('cbi-snapshot-collision-');
+        const source = path.join(root, 'A.mcdata.csv');
+        const bytes = 'id,value\n1,safe\n';
+        await fs.writeFile(source, bytes);
+        const effects = captureCrossBu(t);
+        const originalMkdir = fs.mkdir;
+        // Create an existing destination alias before the snapshot guard runs.
+        t.mock.method(fs, 'mkdir', async (...arguments_) => {
+            await originalMkdir(...arguments_);
+            if (String(arguments_[0]).includes(`${path.sep}QA`)) {
+                // A fixed clock makes the expected normal snapshot name deterministic.
+                await fs.link(
+                    source,
+                    path.join(
+                        arguments_[0],
+                        buildExportBasename('A', '2026-01-01T00-00-00.000Z', 'csv', false),
+                    ),
+                );
+            }
+        });
+        t.mock.method(Date.prototype, 'toISOString', () => '2026-01-01T00:00:00.000Z');
+        await assert.rejects(
+            () => crossBuImport(importOptions(root, { filePaths: [source] })),
+            /collides/,
+        );
+        assert.equal(await fs.readFile(source, 'utf8'), bytes);
+        assert.deepEqual(effects, []);
+    });
+});
+
+describe('crossBuImport — output preservation and fan-out diagnostics', () => {
+    for (const format of ['csv', 'tsv', 'json']) {
+        it(`preserves generated ${format} backup and source bytes on same-timestamp snapshot collision`, async (t) => {
+            const root = await createFixtureRoot('cbi-backup-preserve-');
+            const source = path.join(root, 'A.mcdata.csv');
+            const bytes = 'id,value\n1,selected\n';
+            await fs.writeFile(source, bytes);
+            const effects = captureCrossBu(t);
+            t.mock.method(Date.prototype, 'toISOString', () => '2026-01-01T00:00:00.000Z');
+            await assert.rejects(
+                () =>
+                    crossBuImport(
+                        importOptions(root, {
+                            filePaths: [source],
+                            format,
+                            backupBeforeImport: true,
+                        }),
+                    ),
+                /already exists; refusing to overwrite/,
+            );
+            assert.equal(await fs.readFile(source, 'utf8'), bytes);
+            for (const bu of ['QA', 'Prod']) {
+                const backup = path.join(
+                    root,
+                    'data',
+                    'MyCred',
+                    bu,
+                    buildExportBasename('A', '2026-01-01T00-00-00.000Z', format, false),
+                );
+                const backupBytes = {
+                    csv: '\u{FEFF}"id","value"\n"source","one"\n',
+                    tsv: '\u{FEFF}id\tvalue\nsource\tone\n',
+                    json: '[\n{"id":"source","value":"one"}\n]\n',
+                };
+                assert.equal(await fs.readFile(backup, 'utf8'), backupBytes[format]);
+                assert.deepEqual(await readRowsFromFile(backup, format), [
+                    { id: 'source', value: 'one' },
+                ]);
+            }
+            assert.ok(effects.every(({ type }) => type === 'download'));
+        });
+        it(`stages paged API sources and sends identical exact ${format} content to both targets`, async (t) => {
+            const root = await createFixtureRoot('cbi-api-exact-');
+            const expected = [
+                { id: '1', value: '"quoted",\t雪\nline' },
+                { id: '2', value: '' },
+            ];
+            const effects = captureCrossBu(t, async function* () {
+                for (const row of expected) {
+                    yield { pageItems: [{ keys: { id: row.id }, values: { value: row.value } }] };
+                }
+            });
+            assert.equal(
+                await crossBuImport(
+                    importOptions(root, {
+                        sourceCred: 'MyCred',
+                        sourceBu: 'Dev',
+                        deKeys: ['A', 'Z'],
+                        format,
+                    }),
+                ),
+                false,
+            );
+            assert.deepEqual(
+                effects.filter(({ type }) => type === 'download').map(({ mid }) => mid),
+                [111, 111],
+            );
+            const uploads = effects.filter(({ type }) => type === 'upload');
+            assert.deepEqual(
+                uploads.map(({ mid }) => mid),
+                [222, 333, 222, 333],
+            );
+            for (const upload of uploads) {
+                assert.deepEqual(upload.body.items, expected);
+            }
+            for (const bu of ['QA', 'Prod']) {
+                const directory = path.join(root, 'data', 'MyCred', bu);
+                const files = await fs.readdir(directory);
+                assert.equal(files.length, 2);
+                for (const file of files) {
+                    assert.deepEqual(
+                        await readRowsFromFile(path.join(directory, file), format),
+                        expected,
+                    );
+                }
+            }
+        });
+    }
+    for (const clearState of [
+        'not requested',
+        'skipped (already empty)',
+        'succeeded',
+        'attempted; outcome unknown',
+    ]) {
+        it(`reports earlier accepted target and truthful CLEAR ${clearState} on later failure`, async (t) => {
+            const root = await createFixtureRoot('cbi-fanout-fail-');
+            const source = path.join(root, 'A.mcdata.csv');
+            await fs.writeFile(source, 'id,value\n1,exact\n');
+            const clearFails = clearState.startsWith('attempted');
+            const effects = captureCrossBu(t, undefined, {
+                count: clearState.startsWith('skipped') ? 0 : 10,
+                clear: async (mid) => {
+                    if (mid === 333 && clearFails) {
+                        throw new Error('synthetic CLEAR failure');
+                    }
+                },
+                upload: async (mid) => {
+                    if (mid === 333) {
+                        throw new Error('synthetic upload failure');
+                    }
+                },
+            });
+            await assert.rejects(
+                () =>
+                    crossBuImport(
+                        importOptions(root, {
+                            filePaths: [source],
+                            clearBeforeImport: clearState !== 'not requested',
+                        }),
+                    ),
+                (error) => {
+                    assert.match(error.message, /MyCred\/Prod DE "A"/);
+                    assert.ok(error.message.includes(`CLEAR status: ${clearState}`));
+                    assert.match(
+                        error.message,
+                        /Earlier accepted target jobs: 1 \(MyCred\/QA DE "A"\)/,
+                    );
+                    assert.match(error.message, /acceptance does not confirm completion/);
+                    assert.match(error.message, /No automatic retry or rollback/);
+                    assert.deepEqual(error.importSubmission, {
+                        acceptedRows: 0,
+                        acceptedRequests: 0,
+                        requestIds: [],
+                    });
+                    return true;
+                },
+            );
+            assert.equal(
+                effects.filter(({ type, mid }) => type === 'upload' && mid === 222).length,
+                1,
+            );
+            assert.equal(
+                effects.filter(({ type, mid }) => type === 'upload' && mid === 333).length,
+                clearFails ? 0 : 1,
+            );
+        });
+    }
+    for (const format of ['csv', 'json']) {
+        it(`preserves accepted batch counters on later ${format} target upload failure`, async (t) => {
+            const root = await createFixtureRoot('cbi-partial-submission-');
+            const source = path.join(root, `A.mcdata.${format}`);
+            const rows = Array.from({ length: 2501 }, (_, index) => ({ id: String(index) }));
+            await fs.writeFile(
+                source,
+                format === 'json'
+                    ? JSON.stringify(rows)
+                    : `id\n${rows.map(({ id }) => id).join('\n')}\n`,
+            );
+            let calls = 0;
+            captureCrossBu(t, undefined, {
+                upload: async (mid) => {
+                    if (mid === 333 && ++calls === 2) {
+                        throw new Error('synthetic second batch failure');
+                    }
+                },
+            });
+            await assert.rejects(
+                () => crossBuImport(importOptions(root, { filePaths: [source] })),
+                (error) => {
+                    assert.match(error.message, /Earlier accepted target jobs: 1/);
+                    assert.match(error.message, /CLEAR status: succeeded/);
+                    assert.deepEqual(error.importSubmission, {
+                        acceptedRows: 2500,
+                        acceptedRequests: 1,
+                        requestIds: [null],
+                    });
+                    assert.deepEqual(error.cause.importSubmission, error.importSubmission);
+                    return true;
+                },
+            );
+        });
+    }
+    it('preserves a prior snapshot when a later repeated target collides, before any mutation', async (t) => {
+        const root = await createFixtureRoot('cbi-duplicate-snapshot-');
+        const source = path.join(root, 'A.mcdata.csv');
+        const bytes = 'id\n1\n';
+        await fs.writeFile(source, bytes);
+        const effects = captureCrossBu(t);
+        t.mock.method(Date.prototype, 'toISOString', () => '2026-01-01T00:00:00.000Z');
+        const target = { credential: 'MyCred', bu: 'QA' };
+        await assert.rejects(
+            () =>
+                crossBuImport(
+                    importOptions(root, {
+                        filePaths: [source],
+                        targets: [target, target],
+                    }),
+                ),
+            /already exists; refusing to overwrite/,
+        );
+        const directory = path.join(root, 'data', 'MyCred', 'QA');
+        const files = await fs.readdir(directory);
+        assert.equal(files.length, 1);
+        assert.equal(
+            await fs.readFile(path.join(directory, files[0]), 'utf8'),
+            '\u{FEFF}"id"\n"1"\n',
+        );
+        assert.equal(await fs.readFile(source, 'utf8'), bytes);
+        assert.deepEqual(effects, []);
+    });
+    it('rejects repeated target backup output before truncation or mutation', async (t) => {
+        const root = await createFixtureRoot('cbi-duplicate-backup-');
+        const source = path.join(root, 'A.mcdata.csv');
+        await fs.writeFile(source, 'id\n1\n');
+        const effects = captureCrossBu(t);
+        t.mock.method(Date.prototype, 'toISOString', () => '2026-01-01T00:00:00.000Z');
+        const target = { credential: 'MyCred', bu: 'QA' };
+        await assert.rejects(
+            () =>
+                crossBuImport(
+                    importOptions(root, {
+                        filePaths: [source],
+                        targets: [target, target],
+                        backupBeforeImport: true,
+                    }),
+                ),
+            /already exists; refusing to overwrite/,
+        );
+        const directory = path.join(root, 'data', 'MyCred', 'QA');
+        const files = await fs.readdir(directory);
+        assert.equal(files.length, 1);
+        assert.deepEqual(await readRowsFromFile(path.join(directory, files[0]), 'csv'), [
+            { id: 'source', value: 'one' },
+        ]);
+        assert.ok(effects.every(({ type }) => type === 'download'));
+    });
+});
+
 describe('crossBuImport — API mode', () => {
     it('is exported as a function', () => {
         assert.strictEqual(typeof crossBuImport, 'function');
     });
 
     it('rejects when source credential is missing from mcdevrc', async () => {
-        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-test-'));
+        const temporaryDirectory = await createFixtureRoot('cbi-test-');
         await assert.rejects(
             () =>
                 crossBuImport({
@@ -51,11 +560,11 @@ describe('crossBuImport — API mode', () => {
                 }),
             /UnknownCred/,
         );
-        await fs.rm(temporaryDirectory, { recursive: true, force: true });
+        // Retain the small, owned synthetic fixture for diagnostics.
     });
 
     it('rejects when target BU is unknown', async () => {
-        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-test-'));
+        const temporaryDirectory = await createFixtureRoot('cbi-test-');
         await assert.rejects(
             () =>
                 crossBuImport({
@@ -74,13 +583,13 @@ describe('crossBuImport — API mode', () => {
                 }),
             /NonExistent/,
         );
-        await fs.rm(temporaryDirectory, { recursive: true, force: true });
+        // Retain the small, owned synthetic fixture for diagnostics.
     });
 });
 
 describe('crossBuImport — file mode', () => {
     it('rejects when a target BU is unknown', async () => {
-        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-file-test-'));
+        const temporaryDirectory = await createFixtureRoot('cbi-file-test-');
         const fakeCsv = path.join(
             temporaryDirectory,
             buildExportBasename('My_DE', '2026-04-08T10-00-00.000Z', 'csv'),
@@ -102,7 +611,7 @@ describe('crossBuImport — file mode', () => {
                 }),
             /NonExistent/,
         );
-        await fs.rm(temporaryDirectory, { recursive: true, force: true });
+        // Retain the small, owned synthetic fixture for diagnostics.
     });
 
     it('derives DE key from .mcdata. filename correctly', () => {
@@ -114,7 +623,7 @@ describe('crossBuImport — file mode', () => {
 
 describe('crossBuImport — backupBeforeImport flag', () => {
     it('skips backup when backupBeforeImport is false, even with isTTY true', async () => {
-        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-backup-test-'));
+        const temporaryDirectory = await createFixtureRoot('cbi-backup-test-');
         // Rejects at SDK connection (bad creds), but must not attempt the TTY backup prompt
         // before reaching that point — target validation happens first, so use a valid target.
         // We only verify the backup export is not triggered; SDK failure is expected.
@@ -137,11 +646,11 @@ describe('crossBuImport — backupBeforeImport flag', () => {
                 }),
             /UnknownCred/,
         );
-        await fs.rm(temporaryDirectory, { recursive: true, force: true });
+        // Retain the small, owned synthetic fixture for diagnostics.
     });
 
     it('skips backup when backupBeforeImport is undefined and isTTY is false', async () => {
-        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cbi-notty-test-'));
+        const temporaryDirectory = await createFixtureRoot('cbi-notty-test-');
         await assert.rejects(
             () =>
                 crossBuImport({
@@ -161,6 +670,6 @@ describe('crossBuImport — backupBeforeImport flag', () => {
                 }),
             /UnknownCred/,
         );
-        await fs.rm(temporaryDirectory, { recursive: true, force: true });
+        // Retain the small, owned synthetic fixture for diagnostics.
     });
 });

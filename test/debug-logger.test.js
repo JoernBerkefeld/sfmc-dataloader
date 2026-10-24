@@ -1,19 +1,15 @@
 import assert from 'node:assert/strict';
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before } from 'node:test';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
-import os from 'node:os';
+import { createFixtureRoot } from './fixture-root.js';
 import path from 'node:path';
 import { initDebugLogger } from '../lib/debug-logger.mjs';
 
 describe('initDebugLogger', () => {
     let temporary;
     before(async () => {
-        temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-debug-'));
-    });
-
-    after(async () => {
-        await fs.rm(temporary, { recursive: true, force: true });
+        temporary = await createFixtureRoot('mcdata-debug-');
     });
 
     it('creates logs/data directory', () => {

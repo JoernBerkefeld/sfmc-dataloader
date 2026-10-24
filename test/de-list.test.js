@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
+import { createFixtureRoot } from './fixture-root.js';
 import { fetchDeList, normalizeDeListFromBulkResult } from '../lib/de-list.mjs';
 
 describe('normalizeDeListFromBulkResult', () => {
@@ -38,14 +36,14 @@ describe('normalizeDeListFromBulkResult', () => {
 
 describe('fetchDeList', () => {
     it('rejects when project root has no config', async () => {
-        const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-de-list-'));
+        const temporary = await createFixtureRoot('mcdata-de-list-');
         try {
             await assert.rejects(
                 () => fetchDeList(temporary, 'cred', 'bu'),
                 /No project config found/,
             );
         } finally {
-            await fs.rm(temporary, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 });

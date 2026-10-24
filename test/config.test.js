@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before } from 'node:test';
 import fs from 'node:fs/promises';
-import os from 'node:os';
+import { createFixtureRoot } from './fixture-root.js';
 import path from 'node:path';
 import SDK from 'sfmc-sdk';
 import { axiosInstance, RestError } from 'sfmc-sdk/util';
@@ -35,7 +35,7 @@ describe('Node runtime support', () => {
 describe('config', () => {
     let temporary;
     before(async () => {
-        temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        temporary = await createFixtureRoot('mcdata-');
         await fs.writeFile(
             path.join(temporary, '.mcdevrc.json'),
             JSON.stringify({
@@ -58,10 +58,6 @@ describe('config', () => {
                 },
             }),
         );
-    });
-
-    after(async () => {
-        await fs.rm(temporary, { recursive: true, force: true });
     });
 
     it('loadMcdevProject reads JSON', () => {
@@ -90,7 +86,7 @@ describe('config', () => {
 
 describe('loadProjectConfig', () => {
     it('loads mcdata-only pair', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             await fs.writeFile(
                 path.join(directory, '.mcdatarc.json'),
@@ -114,12 +110,12 @@ describe('loadProjectConfig', () => {
             assert.equal(mcdevrc.credentials.R1.businessUnits.DEV, 2);
             assert.equal(mcdevAuth.R1.client_id, 'id');
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('warns when mcdev pair wins and mcdata files exist', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             await fs.writeFile(
                 path.join(directory, '.mcdevrc.json'),
@@ -146,36 +142,36 @@ describe('loadProjectConfig', () => {
             });
             assert.ok(warnings.includes(WARN_MCDATA_SUPERSEDED));
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('throws on incomplete mcdev pair (rc only)', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             await fs.writeFile(path.join(directory, '.mcdevrc.json'), '{}');
             assert.throws(() => loadProjectConfig(directory), /Missing.*mcdev-auth/);
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('throws on incomplete mcdata pair (rc only)', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             await fs.writeFile(path.join(directory, '.mcdatarc.json'), '{}');
             assert.throws(() => loadProjectConfig(directory), /Missing.*mcdata-auth/);
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('throws when no config present', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             assert.throws(() => loadProjectConfig(directory), /No project config found/);
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 });

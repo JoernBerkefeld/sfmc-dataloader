@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
+import nodeFs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { Writable } from 'node:stream';
+import { setImmediate as immediate } from 'node:timers/promises';
+import { createFixtureRoot } from './fixture-root.js';
 import {
     fetchAllRowObjects,
     fetchDataExtensionFieldNames,
     serializeRows,
     exportDataExtensionToFile,
+    createBackupPathGuard,
 } from '../lib/export-de.mjs';
 
 describe('fetchAllRowObjects', () => {
@@ -125,9 +129,346 @@ describe('fetchDataExtensionFieldNames', () => {
     });
 });
 
+const exportParameters = (projectRoot, extra = {}) => ({
+    projectRoot,
+    credentialName: 'cred',
+    buName: 'bu',
+    deKey: 'DE_KEY',
+    format: 'csv',
+    ...extra,
+});
+
+// Mock the existing fs boundary, not a new public dependency-injection API.
+function mockOutput(t, output) {
+    t.mock.method(nodeFs, 'createWriteStream', () => output);
+    syncBuiltinESMExports();
+    t.after(() => {
+        t.mock.restoreAll();
+        syncBuiltinESMExports();
+    });
+}
+
+const onePage = (pageItems) => ({
+    rest: {
+        async *getBulkPages() {
+            yield { pageItems };
+        },
+    },
+});
+
 describe('exportDataExtensionToFile', () => {
+    for (const format of ['csv', 'tsv', 'json']) {
+        for (const empty of [false, true]) {
+            it(`guards every ${format} writer before opening (empty=${empty})`, async () => {
+                const root = await createFixtureRoot('mcdata-export-guard-');
+                const blocked = new Error('blocked writer');
+                const checked = [];
+                await assert.rejects(
+                    exportDataExtensionToFile(
+                        {
+                            ...onePage(empty ? [] : [{ keys: { id: '1' } }, { keys: { id: '2' } }]),
+                            soap: { retrieve: async () => ({ Results: [] }) },
+                        },
+                        exportParameters(root, {
+                            format,
+                            maxRowsPerFile: 1,
+                            beforeOpen: async (outPath) => {
+                                checked.push(outPath);
+                                if (empty || checked.length === 2) {
+                                    await fs.writeFile(outPath, 'protected bytes');
+                                    throw blocked;
+                                }
+                            },
+                        }),
+                    ),
+                    blocked,
+                );
+                assert.equal(checked.length, empty ? 1 : 2);
+                assert.equal(await fs.readFile(checked.at(-1), 'utf8'), 'protected bytes');
+            });
+        }
+    }
+    it('rejects resolved directory aliases and hardlinks to frozen inputs', async () => {
+        const root = await createFixtureRoot('mcdata-export-alias-');
+        const source = `${root}/source.csv`;
+        await fs.writeFile(source, 'original');
+        const alias = `${root}/alias`;
+        await fs.symlink(root, alias, 'junction');
+        const hardlink = `${root}/hardlink.csv`;
+        await fs.link(source, hardlink);
+        const guard = await createBackupPathGuard([source]);
+        for (const destination of [
+            source,
+            `${root}/./source.csv`,
+            `${alias}/source.csv`,
+            hardlink,
+        ]) {
+            await assert.rejects(guard(destination), /Backup destination collides/);
+        }
+        await guard(`${root}/new.csv`);
+        assert.equal(await fs.readFile(source, 'utf8'), 'original');
+    });
+    it(
+        'bounds production on slow output and waits for final filesystem completion',
+        { timeout: 5000 },
+        async (t) => {
+            const root = await createFixtureRoot('mcdata-export-slow-');
+            let produced = 0;
+            let pagesRead = 0;
+            let release;
+            let finalize;
+            const output = new Writable({
+                highWaterMark: 1,
+                write(_chunk, _encoding, callback) {
+                    release = callback;
+                },
+                final(callback) {
+                    finalize = callback;
+                },
+            });
+            mockOutput(t, output);
+            const items = Array.from({ length: 500 }, () => ({
+                get keys() {
+                    produced++;
+                    return { value: 'x'.repeat(4096) };
+                },
+            }));
+            const sdk = {
+                rest: {
+                    async *getBulkPages() {
+                        pagesRead++;
+                        yield { pageItems: items };
+                        pagesRead++;
+                    },
+                },
+            };
+            let isSettled = false;
+            const exporting = (async () => {
+                try {
+                    return await exportDataExtensionToFile(sdk, exportParameters(root));
+                } finally {
+                    isSettled = true;
+                }
+            })();
+            while (!release) {
+                await immediate();
+            }
+            for (let index = 0; index < 10; index++) {
+                await immediate();
+            }
+            assert.ok(produced < 100, `producer ran ${produced} rows ahead`);
+            assert.equal(pagesRead, 1);
+            assert.equal(isSettled, false);
+            while (!finalize) {
+                const callback = release;
+                release = undefined;
+                callback?.();
+                await immediate();
+            }
+            assert.equal(isSettled, false);
+            finalize();
+            const result = await exporting;
+            assert.equal(result.rowCount, 500);
+            assert.equal(output.closed, true);
+        },
+    );
+
+    it('finishes each part before opening its successor', { timeout: 5000 }, async (t) => {
+        const root = await createFixtureRoot('mcdata-export-rotation-');
+        const finalizers = [];
+        const outputs = [];
+        t.mock.method(nodeFs, 'createWriteStream', () => {
+            const output = new Writable({
+                write(_chunk, _encoding, callback) {
+                    callback();
+                },
+                final(callback) {
+                    finalizers.push(callback);
+                },
+            });
+            outputs.push(output);
+            return output;
+        });
+        syncBuiltinESMExports();
+        t.after(() => {
+            t.mock.restoreAll();
+            syncBuiltinESMExports();
+        });
+        const exporting = exportDataExtensionToFile(
+            onePage([{ keys: { a: '1' } }, { keys: { a: '2' } }]),
+            exportParameters(root, { maxRowsPerFile: 1 }),
+        );
+        while (finalizers.length === 0) {
+            await immediate();
+        }
+        assert.equal(outputs.length, 1);
+        for (let index = 0; index < 5; index++) {
+            await immediate();
+        }
+        assert.equal(outputs.length, 1);
+        finalizers[0]();
+        while (finalizers.length < 2) {
+            await immediate();
+        }
+        assert.equal(outputs[0].closed, true);
+        finalizers[1]();
+        assert.equal((await exporting).rowCount, 2);
+        assert.equal(outputs[1].closed, true);
+    });
+
+    for (const failureMode of [
+        'file',
+        'drain',
+        'close',
+        'flush',
+        'sdk',
+        'stringifier',
+        'pending-page',
+    ]) {
+        it(
+            `rejects ${failureMode} failure without hangs or extra reads`,
+            { timeout: 5000 },
+            async (t) => {
+                const root = await createFixtureRoot('mcdata-export-failure-');
+                const expected = new Error(`${failureMode} failure`);
+                let reads = 0;
+                let rejectPage;
+                const output = new Writable({
+                    highWaterMark: 1,
+                    write(_chunk, _encoding, callback) {
+                        switch (failureMode) {
+                            case 'drain': {
+                                queueMicrotask(() => output.destroy(expected));
+
+                                break;
+                            }
+                            case 'file': {
+                                callback(expected);
+
+                                break;
+                            }
+                            case 'close': {
+                                output.destroy();
+
+                                break;
+                            }
+                            default: {
+                                callback();
+                            }
+                        }
+                    },
+                    final(callback) {
+                        callback(failureMode === 'flush' ? expected : undefined);
+                    },
+                });
+                mockOutput(t, output);
+                const sdk = {
+                    rest: {
+                        getBulkPages() {
+                            const iterator = {
+                                [Symbol.asyncIterator]() {
+                                    return iterator;
+                                },
+                                next() {
+                                    reads++;
+                                    if (reads === 1) {
+                                        const value =
+                                            failureMode === 'stringifier'
+                                                ? {
+                                                      toJSON() {
+                                                          throw expected;
+                                                      },
+                                                  }
+                                                : 'x';
+                                        return Promise.resolve({
+                                            value: {
+                                                pageItems:
+                                                    failureMode === 'drain'
+                                                        ? Array.from({ length: 100 }, () => ({
+                                                              keys: { value: 'x'.repeat(4096) },
+                                                          }))
+                                                        : [{ keys: { value } }],
+                                            },
+                                        });
+                                    }
+                                    if (failureMode === 'sdk') {
+                                        return Promise.reject(expected);
+                                    }
+                                    if (failureMode === 'pending-page') {
+                                        queueMicrotask(() => output.destroy(expected));
+                                        const pending = Promise.withResolvers();
+                                        rejectPage = pending.reject;
+                                        return pending.promise;
+                                    }
+                                    return Promise.resolve({ done: true });
+                                },
+                                return() {
+                                    return new Promise(() => {});
+                                },
+                            };
+                            return iterator;
+                        },
+                    },
+                };
+                await assert.rejects(
+                    exportDataExtensionToFile(sdk, exportParameters(root)),
+                    failureMode === 'close' ? /Premature close/ : expected,
+                );
+                assert.equal(output.destroyed, true);
+                assert.ok(reads <= 2);
+                rejectPage?.(new Error('late page rejection'));
+                await immediate();
+            },
+        );
+    }
+
+    for (const format of ['csv', 'tsv']) {
+        it(`preserves exact ${format} multipart and synchronous bytes`, async () => {
+            const root = await createFixtureRoot('mcdata-export-bytes-');
+            const rows = [
+                { pk: '1', value: 'Ä,"x"\n\t' },
+                { pk: '2', value: '' },
+                { pk: '3', value: 'last' },
+            ];
+            const { paths, rowCount } = await exportDataExtensionToFile(
+                onePage(rows.map((values) => ({ values }))),
+                exportParameters(root, { format, maxRowsPerFile: 2 }),
+            );
+            const first =
+                format === 'csv'
+                    ? '\u{FEFF}"pk","value"\n"1","Ä,""x""\n\t"\n"2",\n'
+                    : '\u{FEFF}pk\tvalue\n1\t"Ä,""x""\n\t"\n2\t\n';
+            const continuation = format === 'csv' ? '"3","last"\n' : '3\tlast\n';
+            assert.equal(rowCount, 3);
+            assert.match(paths[0], /\.part1\./);
+            assert.match(paths[1], /\.part2\./);
+            assert.equal(await fs.readFile(paths[0], 'utf8'), first);
+            assert.equal(await fs.readFile(paths[1], 'utf8'), continuation);
+            assert.equal(serializeRows(rows, format, false), first + continuation);
+            const empty = await exportDataExtensionToFile(
+                {
+                    ...onePage([]),
+                    soap: {
+                        retrieve: async () => ({
+                            Results: [
+                                { Name: 'second', Ordinal: 2 },
+                                { Name: 'first', Ordinal: 1 },
+                            ],
+                        }),
+                    },
+                },
+                exportParameters(root, { format, deKey: 'EMPTY' }),
+            );
+            assert.equal(empty.rowCount, 0);
+            assert.equal(
+                await fs.readFile(empty.paths[0], 'utf8'),
+                format === 'csv' ? '\u{FEFF}"first","second"\n' : '\u{FEFF}first\tsecond\n',
+            );
+        });
+    }
+
     it('writes header-only CSV for empty DE when SOAP returns fields', async () => {
-        const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-export-empty-'));
+        const temporary = await createFixtureRoot('mcdata-export-empty-');
         try {
             const sdk = {
                 rest: {
@@ -165,12 +506,12 @@ describe('exportDataExtensionToFile', () => {
             const lines = body.trimEnd().split(/\r?\n/);
             assert.equal(lines.length, 1);
         } finally {
-            await fs.rm(temporary, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('streams CSV rows via getBulkPages and returns paths + rowCount', async () => {
-        const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-export-stream-'));
+        const temporary = await createFixtureRoot('mcdata-export-stream-');
         try {
             const sdk = {
                 rest: {
@@ -207,12 +548,12 @@ describe('exportDataExtensionToFile', () => {
             assert.ok(body.includes('"pk"'));
             assert.ok(body.includes('"1"'));
         } finally {
-            await fs.rm(temporary, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('splits CSV into two parts when maxRowsPerFile is reached', async () => {
-        const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-export-split-'));
+        const temporary = await createFixtureRoot('mcdata-export-split-');
         try {
             const sdk = {
                 rest: {
@@ -246,7 +587,7 @@ describe('exportDataExtensionToFile', () => {
             assert.equal(rowCount, 3);
             assert.equal(paths.length, 2);
         } finally {
-            await fs.rm(temporary, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 });

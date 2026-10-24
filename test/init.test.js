@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import fs from 'node:fs/promises';
 import fss from 'node:fs';
-import os from 'node:os';
+import { createFixtureRoot } from './fixture-root.js';
 import path from 'node:path';
 import { normalizeBuName, processBusinessUnitResults } from '../lib/business-units.mjs';
 import { runMcdataInit } from '../lib/init-project.mjs';
@@ -112,7 +112,7 @@ describe('runMcdataInit', () => {
     }
 
     it('returns 1 when both .mcdevrc.json and .mcdev-auth.json exist', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             await fs.writeFile(path.join(directory, '.mcdevrc.json'), '{}');
             await fs.writeFile(path.join(directory, '.mcdev-auth.json'), '{}');
@@ -132,23 +132,23 @@ describe('runMcdataInit', () => {
                 errors.some((m) => m.includes('.mcdevrc.json') && m.includes('.mcdev-auth.json')),
             );
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('proceeds when only .mcdevrc.json exists without .mcdev-auth.json', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             await fs.writeFile(path.join(directory, '.mcdevrc.json'), '{}');
             const code = await initWithFakeBu(directory);
             assert.equal(code, 0);
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('returns 1 when .mcdatarc.json exists in non-interactive mode without --yes', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             await fs.writeFile(path.join(directory, '.mcdatarc.json'), '{}');
             const errors = [];
@@ -170,23 +170,23 @@ describe('runMcdataInit', () => {
             assert.equal(code, 1);
             assert.ok(errors.some((m) => m.includes('Pass --yes')));
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('skips overwrite confirmation when --yes is true and .mcdatarc.json exists', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             await fs.writeFile(path.join(directory, '.mcdatarc.json'), '{}');
             const code = await initWithFakeBu(directory);
             assert.equal(code, 0);
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('calls _confirm and aborts when user answers no', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             await fs.writeFile(path.join(directory, '.mcdatarc.json'), '{}');
             const messages = [];
@@ -209,12 +209,12 @@ describe('runMcdataInit', () => {
             assert.equal(code, 1);
             assert.ok(messages.some((m) => m.includes('Aborted')));
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('calls _confirm and proceeds when user answers yes', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             await fs.writeFile(path.join(directory, '.mcdatarc.json'), '{}');
             const code = await runMcdataInit({
@@ -233,12 +233,12 @@ describe('runMcdataInit', () => {
             });
             assert.equal(code, 0);
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('returns 1 in non-interactive mode when required flags are missing', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             const errors = [];
             const code = await runMcdataInit({
@@ -252,12 +252,12 @@ describe('runMcdataInit', () => {
             assert.equal(code, 1);
             assert.ok(errors.some((m) => m.includes('missing required flags')));
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('writes .mcdatarc.json and .mcdata-auth.json on success', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             const code = await initWithFakeBu(directory);
             assert.equal(code, 0);
@@ -270,23 +270,23 @@ describe('runMcdataInit', () => {
             assert.equal(auth.TestOrg.client_id, 'cid');
             assert.equal(auth.TestOrg.account_id, 100);
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('creates .gitignore with .mcdata-auth.json entry', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             await initWithFakeBu(directory);
             const gitignore = fss.readFileSync(path.join(directory, '.gitignore'), 'utf8');
             assert.ok(gitignore.includes('.mcdata-auth.json'));
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 
     it('appends .mcdata-auth.json to existing .gitignore without duplication', async () => {
-        const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-'));
+        const directory = await createFixtureRoot('mcdata-');
         try {
             await fs.writeFile(path.join(directory, '.gitignore'), 'node_modules\n');
             await initWithFakeBu(directory);
@@ -301,7 +301,7 @@ describe('runMcdataInit', () => {
             const count2 = (gitignore2.match(/\.mcdata-auth\.json/g) ?? []).length;
             assert.equal(count2, 1);
         } finally {
-            await fs.rm(directory, { recursive: true, force: true });
+            // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
 });

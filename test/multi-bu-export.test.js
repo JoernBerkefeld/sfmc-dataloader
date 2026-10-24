@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { multiBuExport } from '../lib/multi-bu-export.mjs';
-import os from 'node:os';
-import path from 'node:path';
-import fs from 'node:fs/promises';
-
+import { createFixtureRoot } from './fixture-root.js';
 const mcdevrc = {
     credentials: {
         MyCred: {
@@ -25,7 +22,7 @@ const mcdevAuth = {
 
 describe('multiBuExport', () => {
     it('accepts an empty sources array without throwing and returns []', async () => {
-        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'mbe-test-empty-'));
+        const temporaryDirectory = await createFixtureRoot('mbe-test-empty-');
         const result = await multiBuExport({
             projectRoot: temporaryDirectory,
             mcdevrc,
@@ -35,11 +32,11 @@ describe('multiBuExport', () => {
             format: 'csv',
         });
         assert.deepEqual(result, []);
-        await fs.rm(temporaryDirectory, { recursive: true, force: true });
+        // Retain the small, owned synthetic fixture for diagnostics.
     });
 
     it('rejects when a source credential is missing from mcdevrc', async () => {
-        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'mbe-test-missing-'));
+        const temporaryDirectory = await createFixtureRoot('mbe-test-missing-');
         await assert.rejects(
             () =>
                 multiBuExport({
@@ -52,11 +49,11 @@ describe('multiBuExport', () => {
                 }),
             /UnknownCred/,
         );
-        await fs.rm(temporaryDirectory, { recursive: true, force: true });
+        // Retain the small, owned synthetic fixture for diagnostics.
     });
 
     it('rejects when a source BU is missing from mcdevrc', async () => {
-        const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'mbe-test-missing-bu-'));
+        const temporaryDirectory = await createFixtureRoot('mbe-test-missing-bu-');
         await assert.rejects(
             () =>
                 multiBuExport({
@@ -69,6 +66,6 @@ describe('multiBuExport', () => {
                 }),
             /NonExistent/,
         );
-        await fs.rm(temporaryDirectory, { recursive: true, force: true });
+        // Retain the small, owned synthetic fixture for diagnostics.
     });
 });

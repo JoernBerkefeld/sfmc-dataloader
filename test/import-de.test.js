@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before } from 'node:test';
 import fs from 'node:fs/promises';
-import os from 'node:os';
+import { createFixtureRoot } from './fixture-root.js';
 import path from 'node:path';
 import { RestError } from 'sfmc-sdk/util';
 import {
@@ -32,6 +32,11 @@ function captureConsoleWarn(function_) {
     return lines;
 }
 /* eslint-enable no-console */
+
+async function* failingRowSource() {
+    yield { id: '1' };
+    throw new Error('synthetic read failure');
+}
 
 describe('importRowsForDe', () => {
     it('calls put for upsert in chunks', async () => {
@@ -137,6 +142,65 @@ describe('importRowsStreamingForDe', () => {
         assert.equal(posts[0].n, 2);
     });
 
+    for (const mode of ['insert', 'upsert']) {
+        it(`reports accepted requests when the second batch rejects (${mode})`, async () => {
+            let calls = 0;
+            const submit = async () => {
+                if (++calls === 2) {
+                    throw new Error('synthetic second-batch rejection');
+                }
+                return { requestId: 'accepted-1' };
+            };
+            const sdk = { rest: { put: submit, post: submit } };
+            await assert.rejects(
+                () =>
+                    importRowsStreamingForDe(sdk, {
+                        deKey: 'K',
+                        rowSource: [{ id: '1' }, { id: '2' }, { id: '3' }],
+                        mode,
+                        maxRowsPerBatch: 2,
+                        totalMemoryBatches: 2,
+                    }),
+                (error) => {
+                    assert.match(error.message, /2 rows in 1 requests accepted/);
+                    assert.match(error.message, /acceptance does not confirm completion/);
+                    assert.match(error.message, /No automatic retry or rollback/);
+                    assert.deepEqual(error.importSubmission, {
+                        acceptedRows: 2,
+                        acceptedRequests: 1,
+                        requestIds: ['accepted-1'],
+                    });
+                    assert.match(error.cause.message, /second-batch rejection/);
+                    return true;
+                },
+            );
+            assert.equal(calls, 2);
+        });
+    }
+
+    it('retains accepted evidence when later source reading fails without a requestId', async () => {
+        const sdk = { rest: { put: async () => ({}) } };
+        await assert.rejects(
+            () =>
+                importRowsStreamingForDe(sdk, {
+                    deKey: 'K',
+                    rowSource: failingRowSource(),
+                    mode: 'upsert',
+                    maxRowsPerBatch: 1,
+                    totalMemoryBatches: 2,
+                }),
+            (error) => {
+                assert.match(error.message, /synthetic read failure/);
+                assert.deepEqual(error.importSubmission, {
+                    acceptedRows: 1,
+                    acceptedRequests: 1,
+                    requestIds: [null],
+                });
+                return true;
+            },
+        );
+    });
+
     it('throws when the row source yields nothing', async () => {
         const sdk = {
             rest: {
@@ -197,12 +261,8 @@ describe('importRowsStreamingForDe', () => {
 describe('importFromFile', () => {
     let temporary;
     before(async () => {
-        temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mcdata-import-'));
+        temporary = await createFixtureRoot('mcdata-import-');
     });
-    after(async () => {
-        await fs.rm(temporary, { recursive: true, force: true });
-    });
-
     const stubSdk = {
         rest: {
             put: async () => {
@@ -213,6 +273,56 @@ describe('importFromFile', () => {
             },
         },
     };
+
+    for (const format of ['csv', 'tsv']) {
+        it(`submits exact 87-column original inline-quote reproduction (${format})`, async () => {
+            const separator = format === 'csv' ? ',' : '\t';
+            const headers = Array.from({ length: 87 }, (_, index) => `field${index}`);
+            const values = headers.map((_, index) =>
+                index === 9 ? 'var label = "demo";' : `value-${index}`,
+            );
+            const next = headers.map((_, index) => `next-${index}`);
+            const filePath = path.join(temporary, `inline.${format}`);
+            await fs.writeFile(
+                filePath,
+                [headers, values, next].map((row) => row.join(separator)).join('\n') + '\n',
+            );
+            const submitted = [];
+            const sdk = {
+                rest: {
+                    put: async (_route, body) => {
+                        submitted.push(...body.items);
+                        return {};
+                    },
+                },
+            };
+            const result = await importFromFile(sdk, { filePath, deKey: 'K', mode: 'upsert' });
+            assert.equal(result.count, 2);
+            assert.deepEqual(submitted, [
+                Object.fromEntries(headers.map((header, index) => [header, values[index]])),
+                Object.fromEntries(headers.map((header, index) => [header, next[index]])),
+            ]);
+        });
+    }
+
+    it('rejects malformed data beyond the first upload window without submitting any batch', async () => {
+        const filePath = path.join(temporary, 'late.csv');
+        await fs.writeFile(filePath, 'id,value\n' + '1,ok\n'.repeat(3000) + '2,bad,extra\n');
+        let submissions = 0;
+        const sdk = {
+            rest: {
+                put: async () => {
+                    submissions++;
+                    return {};
+                },
+            },
+        };
+        await assert.rejects(
+            () => importFromFile(sdk, { filePath, deKey: 'K', mode: 'upsert' }),
+            /Row length/,
+        );
+        assert.equal(submissions, 0);
+    });
 
     it('rejects empty CSV', async () => {
         const p = path.join(temporary, 'empty.csv');
