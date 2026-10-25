@@ -49,13 +49,27 @@ function captureCrossBu(
     operations = {},
 ) {
     const effects = [];
+    t.mock.method(globalThis, 'setTimeout', (callback) => {
+        queueMicrotask(callback);
+    });
     // eslint-disable-next-line unicorn/no-global-object-property-assignment -- Isolated SDK constructor seam, restored after each test.
     globalThis.__crossBuSdk = (auth) => ({
         rest: {
-            get: async () => ({ count: operations.count ?? 10 }),
+            get: async (route) => {
+                if (route.endsWith('/status')) {
+                    return operations.status
+                        ? operations.status(auth.account_id)
+                        : { status: { requestStatus: 'Complete' } };
+                }
+                return { count: operations.count ?? 10 };
+            },
             put: async (route, body) => {
                 effects.push({ type: 'upload', mid: auth.account_id, route, body });
-                return (await operations.upload?.(auth.account_id, body)) ?? {};
+                return (
+                    (await operations.upload?.(auth.account_id, body)) ?? {
+                        requestId: `accepted-${auth.account_id}`,
+                    }
+                );
             },
             getBulk: async () => {
                 throw new Error('Unbounded download forbidden');
@@ -100,6 +114,104 @@ function importOptions(projectRoot, extra = {}) {
         ...extra,
     };
 }
+
+describe('crossBuImport — async completion propagation', () => {
+    for (const api of [false, true]) {
+        for (const outcome of [
+            'Complete',
+            'missing-id',
+            'missing-status',
+            'status-error',
+            'Cancelled',
+            'Error',
+        ]) {
+            it(`retains mixed-target non-success for ${api ? 'API' : 'file'} mode: ${outcome}`, async (t) => {
+                const root = await createFixtureRoot('cbi-completion-');
+                const source = path.join(root, 'A.mcdata.csv');
+                await fs.writeFile(source, 'id\n1\n');
+                const effects = captureCrossBu(t, undefined, {
+                    upload: async (mid) =>
+                        mid === 222 && outcome === 'missing-id' ? {} : undefined,
+                    status: async (mid) => {
+                        if (mid === 333) {
+                            return { status: { requestStatus: 'Complete' } };
+                        }
+                        if (outcome === 'status-error') {
+                            throw new Error('synthetic status failure');
+                        }
+                        return outcome === 'missing-status'
+                            ? {}
+                            : { status: { requestStatus: outcome } };
+                    },
+                });
+                assert.equal(
+                    await crossBuImport(
+                        importOptions(
+                            root,
+                            api
+                                ? { sourceCred: 'MyCred', sourceBu: 'Dev', deKeys: ['A'] }
+                                : { filePaths: [source] },
+                        ),
+                    ),
+                    outcome !== 'Complete',
+                );
+                assert.deepEqual(
+                    effects.filter(({ type }) => type === 'upload').map(({ mid }) => mid),
+                    [222, 333],
+                );
+            });
+        }
+    }
+});
+
+describe('crossBuImport — explicit export selection', () => {
+    for (const otherName of [
+        'Z.mcdata.2027-01-01.csv',
+        'Z.mcdata.2026-01-01.tsv',
+        'Z.mcdata.csv',
+    ]) {
+        it(`rejects ambiguous file selection before any target output or API effect (${otherName})`, async (t) => {
+            const root = await createFixtureRoot('cbi-explicit-');
+            const paths = ['A.mcdata.csv', 'Z.mcdata.2026-01-01.csv', otherName].map((name) =>
+                path.join(root, name),
+            );
+            for (const file of paths) {
+                await fs.writeFile(file, 'id\n1\n');
+            }
+            const effects = captureCrossBu(t);
+            const before = await fs.readdir(root);
+            await assert.rejects(
+                crossBuImport(importOptions(root, { filePaths: paths, backupBeforeImport: true })),
+                /Ambiguous explicit import selection/,
+            );
+            assert.deepEqual(effects, []);
+            assert.deepEqual(await fs.readdir(root), before);
+        });
+    }
+
+    it('preserves multiple DEs and one ordered contiguous multipart set across targets', async (t) => {
+        const root = await createFixtureRoot('cbi-explicit-positive-');
+        const paths = ['A.mcdata.part2.csv', 'Z.mcdata.csv', 'A.mcdata.part1.csv'].map((name) =>
+            path.join(root, name),
+        );
+        await fs.writeFile(paths[0], '2\n');
+        await fs.writeFile(paths[1], 'id\n3\n');
+        await fs.writeFile(paths[2], 'id\n1\n');
+        const effects = captureCrossBu(t);
+        assert.equal(await crossBuImport(importOptions(root, { filePaths: paths })), false);
+        assert.deepEqual(
+            effects
+                .filter(({ type }) => type === 'upload')
+                .map(({ mid, body }) => [mid, body.items]),
+            [
+                [222, [{ id: '1' }, { id: '2' }]],
+                [333, [{ id: '1' }, { id: '2' }]],
+                [222, [{ id: '3' }]],
+                [333, [{ id: '3' }]],
+            ],
+        );
+    });
+});
 
 describe('crossBuImport — streaming multipart snapshots', () => {
     for (const [inputFormat, format] of [
@@ -725,7 +837,7 @@ describe('crossBuImport — output preservation and fan-out diagnostics', () => 
                     assert.deepEqual(error.importSubmission, {
                         acceptedRows: 2500,
                         acceptedRequests: 1,
-                        requestIds: [null],
+                        requestIds: ['accepted-333'],
                     });
                     assert.deepEqual(error.cause.importSubmission, error.importSubmission);
                     return true;

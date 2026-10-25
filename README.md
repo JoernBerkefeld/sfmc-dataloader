@@ -91,7 +91,9 @@ Creates one file per BU/DE combination using the same `.mcdata.` naming rules.
 mcdata import MyCred/MyBU --de MyDE_CustomerKey --mode upsert
 ```
 
-Imports use the **asynchronous** bulk row API only: `POST` for `--mode insert`, `PUT` for `--mode upsert` (same endpoint path). After uploading, `mcdata` waits 5 seconds before checking the first valid request ID, then checks request IDs sequentially without repeating that initial wait. Each request still waits 5 seconds between status checks while it is `Pending` or `Executing`, until it reaches a terminal status such as `Complete` or `Error`. On `Error`, per-row error messages are printed to the log so you can see exactly which records failed. The process exits with code 1 if any import job fails, which also surfaces as an error notification in the VS Code extension.
+If an explicit `--file` selection contains more than one export run or format for the same DE, the import is rejected instead of silently choosing one. Automatic file discovery still chooses the newest run.
+
+Imports use the **asynchronous** bulk row API only: `POST` for `--mode insert`, `PUT` for `--mode upsert` (same endpoint path). After uploading, `mcdata` waits 5 seconds before checking the first valid request ID, then checks request IDs sequentially without repeating that initial wait. Each request still waits 5 seconds between status checks while it is `Pending` or `Executing`, until it reaches a terminal status such as `Complete` or `Error`. On `Error`, per-row error messages are printed to the log so you can see exactly which records failed. The process exits with code 1 if any import job fails or completion cannot be confirmed (including missing request IDs, unavailable status responses, or unexpected statuses), which also surfaces as an error notification in the VS Code extension. Submitted work may still run after an unconfirmed result; no automatic rollback is performed.
 
 Resolves the latest matching export file under `./data/MyCred/MyBU/` for that DE key. The file format is detected automatically from the file extension (`.csv`, `.tsv`, `.json`).
 
@@ -196,6 +198,8 @@ Interactive: type `YES` when prompted. In CI, add `--i-accept-clear-data-risk` a
 | `--no-backup-before-import`  | Skip the backup prompt even in interactive (TTY) sessions                                                             |
 | `--clear-before-import`      | SOAP `ClearData` before REST import                                                                                   |
 | `--i-accept-clear-data-risk` | Non-interactive consent for clear                                                                                     |
+
+Diagnostic logs mask `--client-id` and `--client-secret` values in the recorded command line, case-insensitive authorization headers, and SOAP authentication tokens. Treat logs as potentially sensitive: other request and response data can still contain business data.
 
 Log lines include **row counts** and show file paths as **absolute paths in double-quotes** (e.g. `"C:\data\MyCred\DEV\Contact.mcdata.csv"`) so they are clickable in VS Code's integrated terminal.
 

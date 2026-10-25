@@ -67,6 +67,53 @@ describe('initDebugLogger', () => {
         );
     });
 
+    for (const flag of ['--client-id', '--client-secret']) {
+        for (const equals of [false, true]) {
+            it(`redacts ${flag} ${equals ? 'equals' : 'separated'} values without changing argv`, async () => {
+                const secret = 'synthetic credential=a&b with spaces';
+                const argv = [
+                    'node',
+                    'mcdata.mjs',
+                    'export',
+                    'R1/DEV',
+                    ...(equals ? [`${flag}=${secret}`] : [flag, secret]),
+                    '--de',
+                    'Business secret records',
+                ];
+                const original = [...argv];
+                const logger = initDebugLogger(temporary, '1.0.0', argv);
+                const content = await fs.readFile(logger.logPath, 'utf8');
+                assert.ok(!content.includes(secret));
+                assert.ok(content.includes(equals ? `${flag}=***` : `${flag} ***`));
+                assert.ok(content.includes('--de "Business secret records"'));
+                assert.deepEqual(argv, original);
+            });
+        }
+    }
+
+    it('redacts repeated and empty credential arguments while preserving ordinary options', async () => {
+        const argv = [
+            'node',
+            'mcdata.mjs',
+            '--client-id',
+            'synthetic-id',
+            '--client-secret=synthetic-secret',
+            '--client-secret',
+            'synthetic-repeat',
+            '--client-id=',
+            '--file=secret.csv',
+            '--client-secret',
+        ];
+        const logger = initDebugLogger(temporary, '1.0.0', argv);
+        const content = await fs.readFile(logger.logPath, 'utf8');
+        assert.ok(!content.includes('synthetic-'));
+        assert.ok(
+            content.includes(
+                '--client-id *** --client-secret=*** --client-secret *** --client-id=*** --file=secret.csv --client-secret',
+            ),
+        );
+    });
+
     it('write() appends lines to log file', async () => {
         const logger = initDebugLogger(temporary, '1.0.0', [
             'node',

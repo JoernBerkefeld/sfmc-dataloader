@@ -137,6 +137,40 @@ describe('resolveImportSet', () => {
         await assert.rejects(resolveImportSet([plain, numbered]), /mixes numbered and unnumbered/);
     });
 
+    it('rejects explicit selection across runs or formats even when mtimes differ', async () => {
+        const first = await fixture('Explicit');
+        for (const [timestamp, format] of [
+            ['2027-01-01', 'csv'],
+            ['2026-02-01T00-00-00.000Z', 'tsv'],
+            ['', 'csv'],
+        ]) {
+            const other = path.join(
+                temporary,
+                buildExportBasename('Explicit', timestamp, format, timestamp === ''),
+            );
+            await fs.writeFile(other, 'field\nvalue\n');
+            await fs.utimes(other, 200, 200);
+            await assert.rejects(
+                resolveImportSet([first, other], { explicitSelection: true }),
+                /Ambiguous explicit import selection/,
+            );
+            assert.deepEqual((await resolveImportSet([first, other])).paths, [other]);
+        }
+    });
+
+    it('preserves explicit contiguous multipart order and rejects gaps', async () => {
+        const first = await fixture('ExplicitParts', 1);
+        const second = await fixture('ExplicitParts', 2);
+        assert.deepEqual(await resolveImportSet([second, first], { explicitSelection: true }), {
+            paths: [first, second],
+            isMultiPart: true,
+        });
+        await assert.rejects(
+            resolveImportSet([second], { explicitSelection: true }),
+            /contiguous parts starting at 1/,
+        );
+    });
+
     it('preserves maximum-mtime selection rather than timestamp ordering', async () => {
         const olderName = await fixture('Latest', 1, 300);
         const newerName = path.join(temporary, buildExportBasename('Latest', '2027-01-01', 'csv'));

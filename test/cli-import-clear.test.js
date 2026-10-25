@@ -45,13 +45,17 @@ async function importProject() {
 
 function captureSdk(t, count = 10) {
     const effects = [];
+    t.mock.method(globalThis, 'setTimeout', (callback) => {
+        queueMicrotask(callback);
+    });
     // eslint-disable-next-line unicorn/no-global-object-property-assignment -- SDK constructor injection is test-only and restored after each case.
     globalThis.__cliImportSdk = {
         rest: {
-            get: async () => ({ count }),
+            get: async (route) =>
+                route.endsWith('/status') ? { status: { requestStatus: 'Complete' } } : { count },
             put: async (route, body) => {
                 effects.push({ type: 'upload', route, body });
-                return {};
+                return { requestId: `accepted-${effects.length}` };
             },
             post: async () => {
                 throw new Error('unexpected POST');
@@ -88,6 +92,138 @@ function argv(root, selection, shouldClear = false) {
         ...(shouldClear ? ['--clear-before-import', '--i-accept-clear-data-risk'] : []),
     ];
 }
+
+describe('CLI async completion propagation', () => {
+    for (const selection of ['de', 'file', 'cross-file', 'cross-api']) {
+        for (const outcome of [
+            'Complete',
+            'missing-id',
+            'missing-status',
+            'status-error',
+            'Cancelled',
+            'Error',
+        ]) {
+            it(`returns truthful exit status for ${selection}: ${outcome}`, async (t) => {
+                const { root, directory } = await importProject();
+                const source = path.join(directory, 'A.mcdata.csv');
+                await fs.writeFile(source, 'id\n1\n');
+                const effects = captureSdk(t);
+                const sdk = globalThis.__cliImportSdk;
+                const get = sdk.rest.get;
+                sdk.rest.get = async (route) => {
+                    if (!route.endsWith('/status')) {
+                        return get(route);
+                    }
+                    if (outcome === 'status-error') {
+                        throw new Error('synthetic status failure');
+                    }
+                    return outcome === 'missing-status'
+                        ? {}
+                        : { status: { requestStatus: outcome } };
+                };
+                if (outcome === 'missing-id') {
+                    sdk.rest.put = async (route, body) => {
+                        effects.push({ type: 'upload', route, body });
+                        return {};
+                    };
+                }
+                const arguments_ = selection.startsWith('cross-')
+                    ? [
+                          'node',
+                          'mcdata',
+                          'import',
+                          '--project',
+                          root,
+                          '--to',
+                          'C/B',
+                          '--no-backup-before-import',
+                          ...(selection === 'cross-api'
+                              ? ['--from', 'C/B', '--de', 'A']
+                              : ['--file', source]),
+                      ]
+                    : argv(root, selection === 'de' ? ['--de', 'A'] : ['--file', source]);
+                assert.equal(await main(arguments_), outcome === 'Complete' ? 0 : 1);
+                assert.equal(effects.filter(({ type }) => type === 'upload').length, 1);
+            });
+        }
+    }
+});
+
+describe('CLI explicit export selection', () => {
+    for (const cross of [false, true]) {
+        for (const otherName of [
+            'Z.mcdata.2027-01-01.csv',
+            'Z.mcdata.2026-01-01.tsv',
+            'Z.mcdata.csv',
+        ]) {
+            it(`rejects ambiguous runs/formats before backup/CLEAR/upload (cross=${cross}, ${otherName})`, async (t) => {
+                const { root, directory } = await importProject();
+                const names = ['A.mcdata.csv', 'Z.mcdata.2026-01-01.csv', otherName];
+                const paths = names.map((name) => path.join(directory, name));
+                for (const file of paths) {
+                    await fs.writeFile(file, 'id\n1\n');
+                }
+                const effects = captureSdk(t);
+                const before = await fs.readdir(directory);
+                const arguments_ = argv(
+                    root,
+                    [...paths.flatMap((file) => ['--file', file]), '--backup-before-import'],
+                    true,
+                );
+                if (cross) {
+                    arguments_.splice(3, 1, '--to', 'C/B');
+                    await assert.rejects(main(arguments_), /Ambiguous explicit import selection/);
+                } else {
+                    assert.equal(await main(arguments_), 1);
+                }
+                assert.deepEqual(effects, []);
+                assert.deepEqual(await fs.readdir(directory), before);
+            });
+        }
+
+        it(`preserves explicit multiple DEs and ordered multipart (cross=${cross})`, async (t) => {
+            const { root, directory } = await importProject();
+            const paths = [
+                'A.mcdata.part2.2026-01-01.csv',
+                'Z.mcdata.csv',
+                'A.mcdata.part1.2026-01-01.csv',
+            ].map((name) => path.join(directory, name));
+            for (const [index, file] of paths.entries()) {
+                await fs.writeFile(file, `${index === 0 ? '' : 'id\n'}${index + 1}\n`);
+            }
+            const effects = captureSdk(t);
+            const arguments_ = argv(
+                root,
+                paths.flatMap((file) => ['--file', file]),
+            );
+            if (cross) {
+                arguments_.splice(3, 1, '--to', 'C/B');
+            }
+            assert.equal(await main(arguments_), 0);
+            assert.deepEqual(
+                effects.filter(({ type }) => type === 'upload').map(({ body }) => body.items),
+                [[{ id: '3' }, { id: '1' }], [{ id: '2' }]],
+            );
+        });
+    }
+
+    it('keeps newest-mtime discovery across multiple runs and formats', async (t) => {
+        const { root, directory } = await importProject();
+        const paths = ['A.mcdata.2027-01-01.csv', 'A.mcdata.2026-01-01.tsv', 'A.mcdata.csv'].map(
+            (name) => path.join(directory, name),
+        );
+        for (const [index, file] of paths.entries()) {
+            await fs.writeFile(file, `id\n${index + 1}\n`);
+            await fs.utimes(file, 100 + index, 100 + index);
+        }
+        const effects = captureSdk(t);
+        assert.equal(await main(argv(root, ['--de', 'A'])), 0);
+        assert.deepEqual(
+            effects.filter(({ type }) => type === 'upload').map(({ body }) => body.items),
+            [[{ id: '3' }]],
+        );
+    });
+});
 
 describe('CLI whole-invocation file gate', () => {
     for (const byDe of [true, false]) {

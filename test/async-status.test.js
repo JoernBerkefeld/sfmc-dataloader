@@ -60,16 +60,17 @@ describe('pollAsyncImportCompletion', () => {
         t.mock.method(log, 'error', () => {});
     });
 
-    it('skips all invalid IDs without waiting and preserves missing-ID logging', async () => {
+    it('rejects all missing IDs without waiting or implying remote failure', async () => {
         const sdk = buildSdk([]);
-        assert.equal(await pollAsyncImportCompletion(sdk, [null, undefined, '']), false);
+        assert.equal(await pollAsyncImportCompletion(sdk, [null, undefined, '']), true);
         assert.deepEqual(sdk.calls, []);
         assert.equal(Date.now(), 0);
         assert.deepEqual(
             messages(log.error),
             Array.from(
                 { length: 3 },
-                () => 'Async import: no requestId returned for chunk — skipping status check.',
+                () =>
+                    'Async import: completion could not be confirmed — no requestId returned for chunk. Submitted work may still run; no rollback was performed.',
             ),
         );
     });
@@ -81,7 +82,7 @@ describe('pollAsyncImportCompletion', () => {
         await advance(t, 4999);
         assert.deepEqual(sdk.calls, []);
         await advance(t, 1);
-        assert.equal(await result, false);
+        assert.equal(await result, true);
         assert.deepEqual(
             sdk.calls.map(({ time }) => time),
             [5000, 5000, 5000],
@@ -181,33 +182,53 @@ describe('pollAsyncImportCompletion', () => {
         const sdk = buildSdk([new Error('Network timeout'), complete]);
         const result = pollAsyncImportCompletion(sdk, ['req-error', 'req-ok']);
         await advance(t, 5000);
-        assert.equal(await result, false);
+        assert.equal(await result, true);
         assert.deepEqual(
             sdk.calls.map(({ time }) => time),
             [5000, 5000],
         );
         assert.deepEqual(messages(log.error), [
             'Async import: status check failed for requestId req-error: Network timeout',
+            'Async import: completion could not be confirmed for requestId req-error (no status available). Submitted work may still run; no rollback was performed.',
         ]);
+        assert.equal(messages(log.info).filter((line) => line.includes('successfully')).length, 1);
     });
 
-    it('preserves unexpected terminal status logging without fetching results', async (t) => {
+    it('rejects unexpected terminal status without claiming a remote failure or fetching results', async (t) => {
         const sdk = buildSdk([{ status: { requestStatus: 'Cancelled' } }]);
         const result = pollAsyncImportCompletion(sdk, ['req-cancelled']);
         await advance(t, 5000);
-        assert.equal(await result, false);
+        assert.equal(await result, true);
         assert.equal(sdk.calls.length, 1);
         assert.deepEqual(messages(log.error), [
-            'Async import: unexpected status "Cancelled" for requestId req-cancelled.',
+            'Async import: completion could not be confirmed for requestId req-cancelled (unexpected status "Cancelled"). Submitted work may still run; no rollback was performed.',
         ]);
+        assert.deepEqual(
+            messages(log.info).filter((line) => line.includes('successfully')),
+            [],
+        );
     });
 
-    it('preserves an absent status without logging an unexpected status', async (t) => {
-        const sdk = buildSdk([{}]);
-        const result = pollAsyncImportCompletion(sdk, ['req-empty']);
-        await advance(t, 5000);
-        assert.equal(await result, false);
-        assert.equal(sdk.calls.length, 1);
-        assert.deepEqual(messages(log.error), []);
-    });
+    for (const response of [
+        undefined,
+        {},
+        { status: {} },
+        { status: { requestStatus: null } },
+        { status: { requestStatus: '' } },
+    ]) {
+        it(`rejects absent status (${JSON.stringify(response)}) without fetching results`, async (t) => {
+            const sdk = buildSdk([response]);
+            const result = pollAsyncImportCompletion(sdk, ['req-empty']);
+            await advance(t, 5000);
+            assert.equal(await result, true);
+            assert.equal(sdk.calls.length, 1);
+            assert.deepEqual(messages(log.error), [
+                'Async import: completion could not be confirmed for requestId req-empty (no status available). Submitted work may still run; no rollback was performed.',
+            ]);
+            assert.deepEqual(
+                messages(log.info).filter((line) => line.includes('successfully')),
+                [],
+            );
+        });
+    }
 });

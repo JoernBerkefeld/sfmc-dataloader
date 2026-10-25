@@ -313,6 +313,114 @@ describe('buildSdkOptions', () => {
         assert.ok(logs.some((l) => l.includes('REQUEST BODY >>')));
     });
 
+    for (const token of ['synthetic-compact-token', '\nsynthetic-multiline\ntoken\n']) {
+        it(`redacts ${token.includes('\n') ? 'multiline' : 'compact'} SOAP authentication without changing the request`, () => {
+            const logs = [];
+            const { logRequest } = buildSdkOptions({
+                write: (text) => {
+                    logs.push(text);
+                },
+                logPath: 'unused.log',
+            }).eventHandlers;
+            const data =
+                '<Envelope><Header><fueloauth xmlns="http://exacttarget.com">' +
+                token +
+                '</fueloauth><fueloauth>synthetic-second-token</fueloauth></Header>' +
+                '<Body><Value>business-record</Value><fueloauthSuffix>keep</fueloauthSuffix></Body></Envelope>';
+            const request = {
+                method: 'post',
+                url: '/Service.asmx',
+                headers: { Authorization: 'Bearer synthetic-header-token' },
+                data,
+            };
+            const original = structuredClone(request);
+            logRequest(request);
+            assert.deepEqual(request, original);
+            assert.deepEqual(logs, [
+                'API REQUEST >> POST /Service.asmx',
+                'REQUEST BODY >> <Envelope><Header><fueloauth xmlns="http://exacttarget.com">*** TOKEN REMOVED ***</fueloauth>' +
+                    '<fueloauth>*** TOKEN REMOVED ***</fueloauth></Header>' +
+                    '<Body><Value>business-record</Value><fueloauthSuffix>keep</fueloauthSuffix></Body></Envelope>',
+            ]);
+            assert.ok(!logs.join('\n').includes(token));
+            assert.ok(!logs.join('\n').includes('synthetic-second-token'));
+            assert.ok(!logs.join('\n').includes('synthetic-header-token'));
+        });
+    }
+
+    for (const header of ['Authorization', 'authorization', 'AUTHORIZATION']) {
+        it(`keeps REST ${header} out of diagnostics and preserves business fields`, () => {
+            const logs = [];
+            const { logRequest } = buildSdkOptions({
+                write: (text) => {
+                    logs.push(text);
+                },
+                logPath: 'unused.log',
+            }).eventHandlers;
+            const request = {
+                method: 'post',
+                url: '/data/v1/async/dataextensions/key:Orders/rows',
+                headers: { [header]: 'Bearer synthetic-rest-token' },
+                data: { client_secret: 'business-value', rows: [{ token: 'business-record' }] },
+            };
+            const original = structuredClone(request);
+            logRequest(request);
+            assert.deepEqual(request, original);
+            assert.deepEqual(logs, [
+                `API REQUEST >> POST ${request.url}`,
+                `REQUEST BODY >> ${JSON.stringify(request.data, null, 2)}`,
+            ]);
+            assert.ok(!logs.join('\n').includes('synthetic-rest-token'));
+        });
+    }
+
+    it('limits XML masking to the exact SOAP endpoint', () => {
+        const logs = [];
+        const { logRequest } = buildSdkOptions({
+            write: (text) => {
+                logs.push(text);
+            },
+            logPath: 'unused.log',
+        }).eventHandlers;
+        const data = '<fueloauth>business-value</fueloauth>';
+        logRequest({ url: '/other/Service.asmx', data });
+        assert.deepEqual(logs, [
+            'API REQUEST >> GET /other/Service.asmx',
+            `REQUEST BODY >> ${data}`,
+        ]);
+    });
+
+    it('preserves string and object response representations including authentication-like fields', () => {
+        const logs = [];
+        const { logResponse } = buildSdkOptions({
+            write: (text) => {
+                logs.push(text);
+            },
+            logPath: 'unused.log',
+        }).eventHandlers;
+        const responses = [
+            { status: 200, data: '<fueloauth>response-value</fueloauth>\n<Rows>records</Rows>' },
+            {
+                statusCode: 202,
+                data: { access_token: 'response-value', rows: [{ secret: 'record' }] },
+            },
+        ];
+        const original = structuredClone(responses);
+        for (const response of responses) {
+            logResponse(response);
+        }
+        assert.deepEqual(responses, original);
+        assert.deepEqual(logs, [
+            'API RESPONSE << 200',
+            'RESPONSE BODY <<\n  <fueloauth>response-value</fueloauth>\n  <Rows>records</Rows>',
+            'API RESPONSE << 202',
+            `RESPONSE BODY <<\n${JSON.stringify(responses[1].data, null, 2)
+                .split('\n')
+                .map((line) => '  ' + line)
+                .join('\n')}`,
+        ]);
+    });
+
     it('logResponse writes to logger', () => {
         const logs = [];
         const mockLogger = {
