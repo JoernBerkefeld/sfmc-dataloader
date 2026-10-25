@@ -201,6 +201,8 @@ Log lines include **row counts** and show file paths as **absolute paths in doub
 
 Import from `sfmc-dataloader` for use in other tools (for example the **SFMC Data Loader** VS Code extension):
 
+The internal file-reader helpers in `lib/read-rows.mjs` accept `{ skipEmptyLines: true }` to skip only unquoted blank or whitespace-only CSV/TSV records. The default is `false`; quoted empty/whitespace values, delimiter-only records and blank lines inside quoted fields remain data, and JSON is unaffected. Pass options as the third argument to `preflightImportPaths()` or the single-file read/stream helpers, and as the fourth argument to the multipart read/stream/count helpers (after the existing optional metadata argument). Preflight freezes the normalized boolean as `metadata.skipEmptyLines`; supplied metadata is authoritative, including when later options differ. Inputs must remain unchanged between preflight and consumption. This reader option is not yet exposed by CLI/import orchestration.
+
 `importFromFile()` validates the entire file before submitting rows and reuses the validated record count. The lower-level `importRowsStreamingForDe()` accepts an arbitrary row iterator; it does not promise file preflight. Both submission helpers report accepted requests, not confirmed asynchronous completion.
 
 | Export                                     | Purpose                                                                                                                                                                                                                                |

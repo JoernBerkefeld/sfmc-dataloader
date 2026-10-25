@@ -138,7 +138,13 @@ describe('strict fork regressions', () => {
             await fs.writeFile(second, `1${separator}2\n`);
             const paths = [first, second];
             const metadata = await preflightImportPaths(paths, format);
-            assert.deepEqual(metadata, { paths, format, headers: ['a', 'b'], recordCount: 1 });
+            assert.deepEqual(metadata, {
+                paths,
+                format,
+                headers: ['a', 'b'],
+                recordCount: 1,
+                skipEmptyLines: false,
+            });
             assert.ok(
                 Object.isFrozen(metadata) &&
                     Object.isFrozen(metadata.headers) &&
@@ -206,6 +212,156 @@ describe('strict fork regressions', () => {
         assert.deepEqual((await rows.next()).value, { a: '1', b: '2' });
         await rows.return();
         await fs.rename(file, file + '.closed');
+    });
+});
+
+describe('opt-in empty-line reader options', () => {
+    let temporary;
+    before(async () => {
+        temporary = await createFixtureRoot('mcdata-empty-lines-');
+    });
+    for (const format of ['csv', 'tsv']) {
+        const separator = format === 'tsv' ? '\t' : ',';
+        it(`${format}: preserves exact valid values with omitted/false/true options`, async () => {
+            const file = path.join(temporary, `valid.${format}`);
+            const headers = ['id', 'content', 'empty'];
+            const values = [
+                ['001', `var label = "demo";${separator}Δ`, ''],
+                ['', 'line\n\n  \nnext', ''],
+                ['', '', ''],
+            ];
+            await fs.writeFile(
+                file,
+                '\u{FEFF}' +
+                    [headers, ...values].map((row) => row.map(encode).join(separator)).join('\r\n'),
+            );
+            const expected = values.map((row) =>
+                Object.fromEntries(headers.map((header, index) => [header, row[index]])),
+            );
+            for (const options of [{}, { skipEmptyLines: false }, { skipEmptyLines: true }]) {
+                const metadata = await preflightImportPaths([file], format, options);
+                assert.equal(metadata.recordCount, expected.length);
+                assert.equal(metadata.skipEmptyLines, options.skipEmptyLines === true);
+                assert.deepEqual(metadata.headers, headers);
+                assert.deepEqual(await readRowsFromFile(file, format, options), expected);
+                assert.deepEqual(
+                    await collectAsync(streamRowsFromFile(file, format, options)),
+                    expected,
+                );
+                assert.deepEqual(
+                    await readRowsFromImportPaths([file], format, undefined, options),
+                    expected,
+                );
+                assert.equal(
+                    await countDataRowsFromImportPaths([file], format, undefined, options),
+                    expected.length,
+                );
+            }
+        });
+        it(`${format}: skips only unquoted blank records and freezes multipart policy`, async () => {
+            const first = path.join(temporary, `blank.${format}`);
+            const second = path.join(temporary, `blank-continuation.${format}`);
+            await fs.writeFile(
+                first,
+                '\u{FEFF}value\r\n\r\n   \r\n""\r\n"   "\r\n"line\n\n  \nnext"\r\n',
+            );
+            await fs.writeFile(second, '\u{FEFF}first continuation\n\n \nlast');
+            const paths = [first, second];
+            const options = { skipEmptyLines: true };
+            const metadata = await preflightImportPaths(paths, format, options);
+            options.skipEmptyLines = false;
+            assert.ok(Object.isFrozen(metadata));
+            assert.equal(metadata.skipEmptyLines, true);
+            const expected = [
+                { value: '' },
+                { value: ' '.repeat(3) },
+                { value: 'line\n\n  \nnext' },
+                { value: 'first continuation' },
+                { value: 'last' },
+            ];
+            assert.deepEqual(metadata.headers, ['value']);
+            assert.equal(metadata.recordCount, expected.length);
+            assert.deepEqual(
+                await readRowsFromImportPaths([], 'json', metadata, options),
+                expected,
+            );
+            assert.deepEqual(
+                await collectAsync(
+                    streamRowsFromImportPaths(paths, format, undefined, { skipEmptyLines: true }),
+                ),
+                expected,
+            );
+            assert.equal(
+                await countDataRowsFromImportPaths(paths, format, metadata, options),
+                expected.length,
+            );
+            assert.deepEqual(
+                await readRowsFromFile(second, format, {
+                    columnHeaders: ['value'],
+                    skipEmptyLines: true,
+                }),
+                expected.slice(3),
+            );
+            // Default strict parsing still rejects zero-cell blank records.
+            for (const defaults of [{}, { skipEmptyLines: false }]) {
+                await assert.rejects(preflightImportPaths(paths, format, defaults));
+                await assert.rejects(readRowsFromImportPaths(paths, format, undefined, defaults));
+                await assert.rejects(readRowsFromFile(first, format, defaults));
+            }
+            await fs.writeFile(first, 'value\n   \nretained');
+            const legacy = await preflightImportPaths([first], format);
+            assert.deepEqual(
+                await readRowsFromImportPaths([first], format, legacy, { skipEmptyLines: true }),
+                [{ value: ' '.repeat(3) }, { value: 'retained' }],
+            );
+        });
+        it(`${format}: preserves delimiter-only width checks and terminal late errors`, async () => {
+            const file = path.join(temporary, `width.${format}`);
+            const options = { skipEmptyLines: true };
+            await fs.writeFile(file, `a${separator}b\n\n \n${separator}\n`);
+            assert.deepEqual(await readRowsFromFile(file, format, options), [{ a: '', b: '' }]);
+            assert.equal((await preflightImportPaths([file], format, options)).recordCount, 1);
+            for (const text of [
+                `value\n${separator}\n`,
+                `a${separator}b\n${`1${separator}2\n`.repeat(100)}\n \nlate\n`,
+            ]) {
+                await fs.writeFile(file, text);
+                await assert.rejects(preflightImportPaths([file], format, options));
+                await assert.rejects(readRowsFromFile(file, format, options));
+                await assert.rejects(collectAsync(streamRowsFromFile(file, format, options)));
+            }
+        });
+        it(`${format}: awaits slow consumers and closes on early return`, async () => {
+            const file = path.join(temporary, `slow.${format}`);
+            await fs.writeFile(file, 'value\n' + 'row\n\n \n'.repeat(1000));
+            const metadata = await preflightImportPaths([file], format, { skipEmptyLines: true });
+            let count = 0;
+            for await (const row of streamRowsFromImportPaths([file], format, metadata)) {
+                assert.deepEqual(row, { value: 'row' });
+                await new Promise((resolve) => setImmediate(resolve));
+                count++;
+            }
+            assert.equal(count, metadata.recordCount);
+            const rows = streamRowsFromImportPaths([file], format, metadata);
+            assert.deepEqual((await rows.next()).value, { value: 'row' });
+            await rows.return();
+            await fs.rename(file, file + '.closed');
+        });
+    }
+    it('leaves JSON rows and counts unchanged', async () => {
+        const file = path.join(temporary, 'unchanged.json');
+        const expected = [{ value: '' }, { value: '  ' }];
+        await fs.writeFile(file, JSON.stringify({ items: expected }));
+        const options = { skipEmptyLines: true };
+        const metadata = await preflightImportPaths([file], 'json', options);
+        assert.equal(metadata.skipEmptyLines, false);
+        assert.equal(metadata.recordCount, 2);
+        assert.deepEqual(await readRowsFromFile(file, 'json', options), expected);
+        assert.deepEqual(await collectAsync(streamRowsFromFile(file, 'json', options)), expected);
+        assert.deepEqual(
+            await readRowsFromImportPaths([file], 'json', undefined, options),
+            expected,
+        );
     });
 });
 

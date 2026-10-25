@@ -36,7 +36,7 @@
         "node": "^22.22.2 || >=24.15.0"
     },
     "dependencies": {
-        "@joern.berkefeld/csv-parser": "^4.2.0",
+        "@joern.berkefeld/csv-parser": "^4.3.0",
         "csv-stringify": "6.9.0",
         "sfmc-sdk": "^4.0.2"
     },
