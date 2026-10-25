@@ -73,7 +73,7 @@ Writes to `./data/MyCred/MyBU/<encodedKey>.mcdata.<timestamp>.csv` (TSV/JSON wit
 
 Use **`--git`** for a stable name without a timestamp: `<encodedKey>.mcdata.csv` (useful for version control).
 
-CSV/TSV exports stream rows with backpressure: slow file writes pause further production rather than accumulating the whole export in memory. Each output part is finished before moving to the next, and success is reported only after the final file write completes. A stream or API failure stops the export; partial output files may remain.
+CSV/TSV/JSON exports stream rows with backpressure: slow file writes pause further production rather than accumulating the whole export in memory. Each output part is finished before moving to the next, and success is reported only after the final file write completes. A stream or API failure stops the export; partial output files may remain.
 
 ### Export — multiple BUs at once
 

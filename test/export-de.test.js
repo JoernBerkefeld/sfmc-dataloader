@@ -210,218 +210,296 @@ describe('exportDataExtensionToFile', () => {
         await guard(`${root}/new.csv`);
         assert.equal(await fs.readFile(source, 'utf8'), 'original');
     });
-    it(
-        'bounds production on slow output and waits for final filesystem completion',
-        { timeout: 5000 },
-        async (t) => {
-            const root = await createFixtureRoot('mcdata-export-slow-');
-            let produced = 0;
-            let pagesRead = 0;
-            let release;
-            let finalize;
-            const output = new Writable({
-                highWaterMark: 1,
-                write(_chunk, _encoding, callback) {
-                    release = callback;
-                },
-                final(callback) {
-                    finalize = callback;
-                },
-            });
-            mockOutput(t, output);
-            const items = Array.from({ length: 500 }, () => ({
-                get keys() {
-                    produced++;
-                    return { value: 'x'.repeat(4096) };
-                },
-            }));
-            const sdk = {
-                rest: {
-                    async *getBulkPages() {
-                        pagesRead++;
-                        yield { pageItems: items };
-                        pagesRead++;
-                    },
-                },
-            };
-            let isSettled = false;
-            const exporting = (async () => {
-                try {
-                    return await exportDataExtensionToFile(sdk, exportParameters(root));
-                } finally {
-                    isSettled = true;
-                }
-            })();
-            while (!release) {
-                await immediate();
-            }
-            for (let index = 0; index < 10; index++) {
-                await immediate();
-            }
-            assert.ok(produced < 100, `producer ran ${produced} rows ahead`);
-            assert.equal(pagesRead, 1);
-            assert.equal(isSettled, false);
-            while (!finalize) {
-                const callback = release;
-                release = undefined;
-                callback?.();
-                await immediate();
-            }
-            assert.equal(isSettled, false);
-            finalize();
-            const result = await exporting;
-            assert.equal(result.rowCount, 500);
-            assert.equal(output.closed, true);
-        },
-    );
-
-    it('finishes each part before opening its successor', { timeout: 5000 }, async (t) => {
-        const root = await createFixtureRoot('mcdata-export-rotation-');
-        const finalizers = [];
-        const outputs = [];
-        t.mock.method(nodeFs, 'createWriteStream', () => {
-            const output = new Writable({
-                write(_chunk, _encoding, callback) {
-                    callback();
-                },
-                final(callback) {
-                    finalizers.push(callback);
-                },
-            });
-            outputs.push(output);
-            return output;
-        });
-        syncBuiltinESMExports();
-        t.after(() => {
-            t.mock.restoreAll();
-            syncBuiltinESMExports();
-        });
-        const exporting = exportDataExtensionToFile(
-            onePage([{ keys: { a: '1' } }, { keys: { a: '2' } }]),
-            exportParameters(root, { maxRowsPerFile: 1 }),
-        );
-        while (finalizers.length === 0) {
-            await immediate();
-        }
-        assert.equal(outputs.length, 1);
-        for (let index = 0; index < 5; index++) {
-            await immediate();
-        }
-        assert.equal(outputs.length, 1);
-        finalizers[0]();
-        while (finalizers.length < 2) {
-            await immediate();
-        }
-        assert.equal(outputs[0].closed, true);
-        finalizers[1]();
-        assert.equal((await exporting).rowCount, 2);
-        assert.equal(outputs[1].closed, true);
-    });
-
-    for (const failureMode of [
-        'file',
-        'drain',
-        'close',
-        'flush',
-        'sdk',
-        'stringifier',
-        'pending-page',
-    ]) {
-        it(
-            `rejects ${failureMode} failure without hangs or extra reads`,
-            { timeout: 5000 },
-            async (t) => {
-                const root = await createFixtureRoot('mcdata-export-failure-');
-                const expected = new Error(`${failureMode} failure`);
-                let reads = 0;
-                let rejectPage;
-                const output = new Writable({
-                    highWaterMark: 1,
-                    write(_chunk, _encoding, callback) {
-                        switch (failureMode) {
-                            case 'drain': {
-                                queueMicrotask(() => output.destroy(expected));
-
-                                break;
-                            }
-                            case 'file': {
-                                callback(expected);
-
-                                break;
-                            }
-                            case 'close': {
-                                output.destroy();
-
-                                break;
-                            }
-                            default: {
+    for (const format of ['csv', 'json']) {
+        describe(`${format} writer lifecycle`, () => {
+            it(
+                'bounds production on slow output and waits for final filesystem completion',
+                { timeout: 5000 },
+                async (t) => {
+                    const root = await createFixtureRoot('mcdata-export-slow-');
+                    let produced = 0;
+                    let pagesRead = 0;
+                    let release;
+                    let finalize;
+                    const output = new Writable({
+                        highWaterMark: 1,
+                        write(chunk, _encoding, callback) {
+                            if (format === 'json' && chunk.toString() === '[\n') {
                                 callback();
+                                return;
                             }
+                            release = callback;
+                        },
+                        final(callback) {
+                            finalize = callback;
+                        },
+                    });
+                    mockOutput(t, output);
+                    const items = Array.from({ length: 500 }, () => ({
+                        get keys() {
+                            produced++;
+                            return { value: 'x'.repeat(4096) };
+                        },
+                    }));
+                    const sdk = {
+                        rest: {
+                            async *getBulkPages() {
+                                pagesRead++;
+                                yield { pageItems: items };
+                                pagesRead++;
+                            },
+                        },
+                    };
+                    let isSettled = false;
+                    const exporting = (async () => {
+                        try {
+                            return await exportDataExtensionToFile(
+                                sdk,
+                                exportParameters(root, { format }),
+                            );
+                        } finally {
+                            isSettled = true;
                         }
-                    },
-                    final(callback) {
-                        callback(failureMode === 'flush' ? expected : undefined);
-                    },
+                    })();
+                    while (!release) {
+                        await immediate();
+                    }
+                    for (let index = 0; index < 10; index++) {
+                        await immediate();
+                    }
+                    assert.ok(produced < 100, `producer ran ${produced} rows ahead`);
+                    if (format === 'json') {
+                        assert.equal(produced, 1, 'JSON pauses at the first blocked row');
+                        assert.ok(output.writableLength < 8192);
+                    }
+                    assert.equal(pagesRead, 1);
+                    assert.equal(isSettled, false);
+                    while (!finalize) {
+                        const callback = release;
+                        release = undefined;
+                        callback?.();
+                        await immediate();
+                    }
+                    assert.equal(isSettled, false);
+                    finalize();
+                    const result = await exporting;
+                    assert.equal(result.rowCount, 500);
+                    assert.equal(output.closed, true);
+                },
+            );
+
+            it('finishes each part before opening its successor', { timeout: 5000 }, async (t) => {
+                const root = await createFixtureRoot('mcdata-export-rotation-');
+                const finalizers = [];
+                const outputs = [];
+                t.mock.method(nodeFs, 'createWriteStream', () => {
+                    const output = new Writable({
+                        write(_chunk, _encoding, callback) {
+                            callback();
+                        },
+                        final(callback) {
+                            finalizers.push(callback);
+                        },
+                    });
+                    outputs.push(output);
+                    return output;
                 });
-                mockOutput(t, output);
-                const sdk = {
-                    rest: {
-                        getBulkPages() {
-                            const iterator = {
-                                [Symbol.asyncIterator]() {
+                syncBuiltinESMExports();
+                t.after(() => {
+                    t.mock.restoreAll();
+                    syncBuiltinESMExports();
+                });
+                const exporting = exportDataExtensionToFile(
+                    onePage([{ keys: { a: '1' } }, { keys: { a: '2' } }]),
+                    exportParameters(root, { format, maxRowsPerFile: 1 }),
+                );
+                while (finalizers.length === 0) {
+                    await immediate();
+                }
+                assert.equal(outputs.length, 1);
+                for (let index = 0; index < 5; index++) {
+                    await immediate();
+                }
+                assert.equal(outputs.length, 1);
+                finalizers[0]();
+                while (finalizers.length < 2) {
+                    await immediate();
+                }
+                assert.equal(outputs[0].closed, true);
+                finalizers[1]();
+                assert.equal((await exporting).rowCount, 2);
+                assert.equal(outputs[1].closed, true);
+            });
+
+            for (const failureMode of [
+                'file',
+                'drain',
+                'close',
+                'flush',
+                'sdk',
+                'stringifier',
+                'pending-page',
+            ]) {
+                it(
+                    `rejects ${failureMode} failure without hangs or extra reads`,
+                    { timeout: 5000 },
+                    async (t) => {
+                        const root = await createFixtureRoot('mcdata-export-failure-');
+                        const expected = new Error(`${failureMode} failure`);
+                        let reads = 0;
+                        let rejectPage;
+                        const output = new Writable({
+                            highWaterMark: 1,
+                            write(chunk, _encoding, callback) {
+                                if (format === 'json' && chunk.toString() === '[\n') {
+                                    callback();
+                                    return;
+                                }
+                                switch (failureMode) {
+                                    case 'drain': {
+                                        queueMicrotask(() => output.destroy(expected));
+
+                                        break;
+                                    }
+                                    case 'file': {
+                                        callback(expected);
+
+                                        break;
+                                    }
+                                    case 'close': {
+                                        output.destroy();
+
+                                        break;
+                                    }
+                                    default: {
+                                        callback();
+                                    }
+                                }
+                            },
+                            final(callback) {
+                                callback(failureMode === 'flush' ? expected : undefined);
+                            },
+                        });
+                        mockOutput(t, output);
+                        const sdk = {
+                            rest: {
+                                getBulkPages() {
+                                    const iterator = {
+                                        [Symbol.asyncIterator]() {
+                                            return iterator;
+                                        },
+                                        next() {
+                                            reads++;
+                                            if (reads === 1) {
+                                                const value =
+                                                    failureMode === 'stringifier'
+                                                        ? {
+                                                              toJSON() {
+                                                                  throw expected;
+                                                              },
+                                                          }
+                                                        : 'x';
+                                                return Promise.resolve({
+                                                    value: {
+                                                        pageItems:
+                                                            failureMode === 'drain'
+                                                                ? Array.from(
+                                                                      { length: 100 },
+                                                                      () => ({
+                                                                          keys: {
+                                                                              value: 'x'.repeat(
+                                                                                  4096,
+                                                                              ),
+                                                                          },
+                                                                      }),
+                                                                  )
+                                                                : [{ keys: { value } }],
+                                                    },
+                                                });
+                                            }
+                                            if (failureMode === 'sdk') {
+                                                return Promise.reject(expected);
+                                            }
+                                            if (failureMode === 'pending-page') {
+                                                queueMicrotask(() => output.destroy(expected));
+                                                const pending = Promise.withResolvers();
+                                                rejectPage = pending.reject;
+                                                return pending.promise;
+                                            }
+                                            return Promise.resolve({ done: true });
+                                        },
+                                        return() {
+                                            return new Promise(() => {});
+                                        },
+                                    };
                                     return iterator;
                                 },
-                                next() {
-                                    reads++;
-                                    if (reads === 1) {
-                                        const value =
-                                            failureMode === 'stringifier'
-                                                ? {
-                                                      toJSON() {
-                                                          throw expected;
-                                                      },
-                                                  }
-                                                : 'x';
-                                        return Promise.resolve({
-                                            value: {
-                                                pageItems:
-                                                    failureMode === 'drain'
-                                                        ? Array.from({ length: 100 }, () => ({
-                                                              keys: { value: 'x'.repeat(4096) },
-                                                          }))
-                                                        : [{ keys: { value } }],
-                                            },
-                                        });
-                                    }
-                                    if (failureMode === 'sdk') {
-                                        return Promise.reject(expected);
-                                    }
-                                    if (failureMode === 'pending-page') {
-                                        queueMicrotask(() => output.destroy(expected));
-                                        const pending = Promise.withResolvers();
-                                        rejectPage = pending.reject;
-                                        return pending.promise;
-                                    }
-                                    return Promise.resolve({ done: true });
-                                },
-                                return() {
-                                    return new Promise(() => {});
-                                },
-                            };
-                            return iterator;
-                        },
+                            },
+                        };
+                        await assert.rejects(
+                            exportDataExtensionToFile(sdk, exportParameters(root, { format })),
+                            failureMode === 'close' ? /Premature close/ : expected,
+                        );
+                        assert.equal(output.destroyed, true);
+                        assert.ok(reads <= 2);
+                        rejectPage?.(new Error('late page rejection'));
+                        await immediate();
                     },
-                };
-                await assert.rejects(
-                    exportDataExtensionToFile(sdk, exportParameters(root)),
-                    failureMode === 'close' ? /Premature close/ : expected,
                 );
-                assert.equal(output.destroyed, true);
-                assert.ok(reads <= 2);
-                rejectPage?.(new Error('late page rejection'));
-                await immediate();
-            },
-        );
+            }
+        });
+    }
+
+    for (const jsonPretty of [false, true]) {
+        it(`preserves JSON multipart bytes and empty output (pretty=${jsonPretty})`, async () => {
+            const root = await createFixtureRoot('mcdata-export-json-bytes-');
+            const rows = [
+                { id: '1', value: 'Ä,"x"\n\t' },
+                { id: '2', value: '' },
+                { id: '3', value: 'last' },
+            ];
+            const result = await exportDataExtensionToFile(
+                onePage(rows.map((values) => ({ values }))),
+                exportParameters(root, { format: 'json', jsonPretty, maxRowsPerFile: 2 }),
+            );
+            assert.equal(result.rowCount, 3);
+            assert.equal(result.paths.length, 2);
+            for (const [index, part] of [rows.slice(0, 2), rows.slice(2)].entries()) {
+                assert.match(result.paths[index], new RegExp(String.raw`\.part${index + 1}\.`));
+                const body = await fs.readFile(result.paths[index], 'utf8');
+                assert.equal(
+                    body,
+                    '[\n' +
+                        part
+                            .map((row) => JSON.stringify(row, null, jsonPretty ? 2 : undefined))
+                            .join(',\n') +
+                        '\n]\n',
+                );
+                assert.deepEqual(JSON.parse(body), part);
+            }
+            for (const apiEmpty of [false, true]) {
+                const sdk = {
+                    ...onePage([]),
+                    soap: { retrieve: async () => ({ Results: [] }) },
+                };
+                if (apiEmpty) {
+                    // eslint-disable-next-line require-yield -- model the SDK's empty-response error
+                    sdk.rest.getBulkPages = async function* () {
+                        throw new Error('Could not find an array to iterate over');
+                    };
+                }
+                const empty = await exportDataExtensionToFile(
+                    sdk,
+                    exportParameters(root, {
+                        format: 'json',
+                        jsonPretty,
+                        deKey: `EMPTY_${apiEmpty}`,
+                    }),
+                );
+                assert.equal(empty.rowCount, 0);
+                assert.equal(await fs.readFile(empty.paths[0], 'utf8'), '[]\n');
+            }
+        });
     }
 
     for (const format of ['csv', 'tsv']) {
