@@ -91,7 +91,7 @@ Creates one file per BU/DE combination using the same `.mcdata.` naming rules.
 mcdata import MyCred/MyBU --de MyDE_CustomerKey --mode upsert
 ```
 
-Imports use the **asynchronous** bulk row API only: `POST` for `--mode insert`, `PUT` for `--mode upsert` (same endpoint path). After uploading, `mcdata` polls the async status endpoint every 5 seconds until the job reaches `Complete` or `Error`. On `Error`, per-row error messages are printed to the log so you can see exactly which records failed. The process exits with code 1 if any import job fails, which also surfaces as an error notification in the VS Code extension.
+Imports use the **asynchronous** bulk row API only: `POST` for `--mode insert`, `PUT` for `--mode upsert` (same endpoint path). After uploading, `mcdata` waits 5 seconds before checking the first valid request ID, then checks request IDs sequentially without repeating that initial wait. Each request still waits 5 seconds between status checks while it is `Pending` or `Executing`, until it reaches a terminal status such as `Complete` or `Error`. On `Error`, per-row error messages are printed to the log so you can see exactly which records failed. The process exits with code 1 if any import job fails, which also surfaces as an error notification in the VS Code extension.
 
 Resolves the latest matching export file under `./data/MyCred/MyBU/` for that DE key. The file format is detected automatically from the file extension (`.csv`, `.tsv`, `.json`).
 
