@@ -215,6 +215,10 @@ The internal file-reader helpers in `lib/read-rows.mjs` accept `{ skipEmptyLines
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `fetchDeList(projectRoot, credential, bu)` | Returns all Data Extension **names** and **customer keys** for one BU via SOAP `retrieveBulk` (pagination handled by **sfmc-sdk**). Not a CLI command — intended for in-process callers that already have mcdev/mcdata config on disk. |
 
+`loadPublicProjectConfig(projectRoot, { stderr } = {})` asynchronously returns `{ mcdevrc }` for connection listing without reading auth-file contents. It requires a complete config/auth pair: mcdev takes precedence (and warns through `stderr` when mcdata files are ignored); an incomplete mcdev pair fails rather than falling back to mcdata. An incomplete mcdata pair or absent configuration also fails. Only the selected public JSON is parsed, so malformed auth JSON does not prevent listing.
+
+`loadProjectConfig(projectRoot, { stderr } = {})` and `loadMcdevProject(projectRoot)` remain synchronous and return `{ mcdevrc, mcdevAuth }`. Malformed selected public/auth JSON produces a `SyntaxError` naming the file, without JSON excerpts or the original parser error. Successful CLI behavior is unchanged.
+
 ## License
 
 MIT — Author: Jörn Berkefeld

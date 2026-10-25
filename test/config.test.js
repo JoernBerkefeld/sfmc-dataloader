@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it, before } from 'node:test';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { loadPublicProjectConfig } from '../lib/index.mjs';
 import { createFixtureRoot } from './fixture-root.js';
 import path from 'node:path';
 import SDK from 'sfmc-sdk';
@@ -174,6 +178,108 @@ describe('loadProjectConfig', () => {
             // Retain the small, owned synthetic fixture for diagnostics.
         }
     });
+});
+
+describe('public config and safe parse errors', () => {
+    const names = ['.mcdevrc.json', '.mcdev-auth.json', '.mcdatarc.json', '.mcdata-auth.json'];
+
+    for (let mask = 0; mask < 16; mask++) {
+        it(`matches synchronous pair selection for file presence mask ${mask}`, async () => {
+            const root = await createFixtureRoot('mcdata-public-');
+            for (const [index, name] of names.entries()) {
+                if (mask & (1 << index)) {
+                    await fs.writeFile(path.join(root, name), JSON.stringify({ source: name }));
+                }
+            }
+            const syncWarnings = [];
+            const asyncWarnings = [];
+            let expected;
+            let failure;
+            try {
+                expected = loadProjectConfig(root, {
+                    stderr: (text) => {
+                        syncWarnings.push(text);
+                    },
+                });
+            } catch (ex) {
+                failure = ex;
+            }
+            const result = loadPublicProjectConfig(root, {
+                stderr: (text) => {
+                    asyncWarnings.push(text);
+                },
+            });
+            assert.ok(result instanceof Promise);
+            if (failure) {
+                await assert.rejects(result, { message: failure.message });
+            } else {
+                assert.deepEqual(await result, { mcdevrc: expected.mcdevrc });
+            }
+            assert.deepEqual(asyncWarnings, syncWarnings);
+        });
+    }
+
+    it('never reads auth contents or uses synchronous filesystem APIs', async (t) => {
+        const root = await createFixtureRoot('mcdata-public-');
+        await fs.writeFile(path.join(root, '.mcdatarc.json'), '{"credentials":{}}');
+        await fs.writeFile(path.join(root, '.mcdata-auth.json'), 'SECRET_SENTINEL invalid JSON');
+        const readFile = fs.readFile.bind(fs);
+        const reads = [];
+        t.mock.method(fs, 'readFile', async (file, ...arguments_) => {
+            reads.push(path.basename(file));
+            return readFile(file, ...arguments_);
+        });
+        for (const method of ['existsSync', 'readFileSync']) {
+            t.mock.method(fsSync, method, () => {
+                assert.fail(`Unexpected synchronous filesystem operation: ${method}`);
+            });
+        }
+        assert.deepEqual(await loadPublicProjectConfig(root), { mcdevrc: { credentials: {} } });
+        assert.deepEqual(reads, ['.mcdatarc.json']);
+    });
+
+    for (const name of names) {
+        it(`sanitizes malformed ${name} at the reader and CLI boundaries`, async () => {
+            const root = await createFixtureRoot('mcdata-safe-json-');
+            const pair = name.startsWith('.mcdev') ? names.slice(0, 2) : names.slice(2);
+            for (const file of pair) {
+                await fs.writeFile(path.join(root, file), '{}');
+            }
+            const sentinel = 'SYNTHETIC_SECRET_DO_NOT_DISCLOSE';
+            await fs.writeFile(path.join(root, name), `{"client_secret":"${sentinel}", invalid}`);
+            const check = (error) => {
+                assert.ok(error instanceof SyntaxError);
+                assert.equal(error.message, `Invalid JSON in ${name}. Fix the file and try again.`);
+                assert.equal(error.cause, undefined);
+                assert.ok(!String(error.stack).includes(sentinel));
+                assert.ok(!JSON.stringify(error).includes(sentinel));
+                return true;
+            };
+            assert.throws(() => loadProjectConfig(root), check);
+            assert.throws(() => loadMcdevProject(root), check);
+            if (name.endsWith('rc.json')) {
+                await assert.rejects(loadPublicProjectConfig(root), check);
+            } else {
+                assert.deepEqual(await loadPublicProjectConfig(root), { mcdevrc: {} });
+            }
+            const cli = spawnSync(
+                process.execPath,
+                [
+                    fileURLToPath(new URL('../bin/mcdata.mjs', import.meta.url)),
+                    'export',
+                    'C/B',
+                    '--de',
+                    'SyntheticDE',
+                ],
+                { cwd: root, encoding: 'utf8' },
+            );
+            assert.equal(cli.error, undefined);
+            assert.notEqual(cli.status, 0);
+            const output = cli.stdout + cli.stderr;
+            assert.ok(output.includes(`Invalid JSON in ${name}`), output);
+            assert.ok(!output.includes(sentinel), output);
+        });
+    }
 });
 
 describe('SDK authentication compatibility', () => {
