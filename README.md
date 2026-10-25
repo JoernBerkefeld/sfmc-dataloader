@@ -113,6 +113,12 @@ Keep selected source files unchanged until the import finishes: preflight is not
 
 Preflight prevents known input/preparation failures from causing CLEAR or upload effects; it is **not a transaction or rollback guarantee**. Later API or operational failures can leave cleared targets and earlier accepted submissions. Failure diagnostics distinguish accepted rows/requests from confirmed completion; a failed request may also have reached the server. There is no automatic rollback or job-level restart, and async acceptance alone does not mean the rows completed successfully.
 
+#### Payload sizing and synthetic benchmark
+
+Payload chunks retain row order and respect both the 2,500-row cap and the 5,500,000-byte UTF-8 JSON budget; a single oversized row is kept alone. Plain JSON data is sized incrementally rather than repeatedly serializing growing prefixes. Programmatic inputs with accessors, custom prototypes, `toJSON`, proxies or unsupported JSON values retain the compatibility path and its serialization behavior.
+
+From a source checkout, run `npm run benchmark:batch --no-workspaces` to compare synthetic narrow, wide and Unicode rows at 250, 1,000 and 2,500 rows. Each case uses a fresh Node process and reports input bytes, chunk sizes, elapsed sizing time and process-lifetime peak RSS (KiB). Use the same Node version and machine for before/after comparisons; these are diagnostic measurements, not CI timing thresholds. No credentials, customer fixtures or API calls are used.
+
 #### Upsert vs insert
 
 - **Upsert** follows the platform's usual behaviour: update when a primary key matches, otherwise insert. For Data Extensions **without** a primary key, upsert **will fail**; use **`--mode insert`** for those.
