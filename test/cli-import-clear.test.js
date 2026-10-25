@@ -91,6 +91,105 @@ function argv(root, selection, shouldClear = false) {
 
 describe('CLI whole-invocation file gate', () => {
     for (const byDe of [true, false]) {
+        for (const contents of [' \t \n\n', 'id,value\n\n \t \n', 'id,value\n\n2,bad,extra\n']) {
+            it(`skip policy rejects later empty/invalid source before all effects (${byDe}, ${JSON.stringify(contents)})`, async (t) => {
+                const { root, directory } = await importProject();
+                const first = path.join(directory, 'A.mcdata.csv');
+                const last = path.join(directory, 'Z.mcdata.csv');
+                await fs.writeFile(first, 'id,value\n\n1,ok\n');
+                await fs.writeFile(last, contents);
+                const effects = captureSdk(t);
+                const selection = byDe
+                    ? ['--de', 'A', '--de', 'Z']
+                    : ['--file', first, '--file', last];
+                const before = await fs.readdir(directory);
+                assert.equal(
+                    await main(
+                        argv(
+                            root,
+                            [...selection, '--skip-empty-lines', '--backup-before-import'],
+                            true,
+                        ),
+                    ),
+                    1,
+                );
+                assert.deepEqual(effects, []);
+                assert.deepEqual(await fs.readdir(directory), before);
+            });
+        }
+        for (const format of ['csv', 'tsv', 'json']) {
+            for (const enabled of [false, true]) {
+                it(`threads single-BU ${format} multipart opt-in (${byDe}, ${enabled})`, async (t) => {
+                    const { root, directory } = await importProject();
+                    const paths = [1, 2].map((part) =>
+                        path.join(directory, `A.mcdata.part${part}.${format}`),
+                    );
+                    const delimiter = format === 'tsv' ? '\t' : ',';
+                    const rows = [
+                        { id: '', value: '' },
+                        { id: '1', value: ` exact${delimiter}\nvalue ` },
+                        { id: '', value: '' },
+                        { id: ' ', value: '"literal"' },
+                    ];
+                    await fs.writeFile(
+                        paths[0],
+                        format === 'json'
+                            ? JSON.stringify([rows[0]])
+                            : `\u{FEFF}id${delimiter}value\n\n""${delimiter}""\n`,
+                    );
+                    await fs.writeFile(
+                        paths[1],
+                        format === 'json'
+                            ? JSON.stringify(rows.slice(1))
+                            : `\u{FEFF}   \n1${delimiter}" exact${delimiter}\nvalue "\n${delimiter}\n" "${delimiter}"""literal"""\n\n`,
+                    );
+                    const effects = captureSdk(t);
+                    const selection = byDe
+                        ? ['--de', 'A']
+                        : paths.flatMap((file) => ['--file', file]);
+                    const result = await main(
+                        argv(root, [...selection, ...(enabled ? ['--skip-empty-lines'] : [])]),
+                    );
+                    assert.equal(result, enabled || format === 'json' ? 0 : 1);
+                    assert.deepEqual(
+                        effects
+                            .filter(({ type }) => type === 'upload')
+                            .flatMap(({ body }) => body.items),
+                        enabled || format === 'json' ? rows : [],
+                    );
+                });
+            }
+        }
+    }
+    for (const api of [false, true]) {
+        it(`threads cross-BU CLI ${api ? 'API' : 'file'} dispatch`, async (t) => {
+            const { root, directory } = await importProject();
+            const source = path.join(directory, 'A.mcdata.csv');
+            await fs.writeFile(source, 'id,value\n\n1," exact "\n \t \n');
+            const effects = captureSdk(t);
+            assert.equal(
+                await main([
+                    'node',
+                    'mcdata',
+                    'import',
+                    '--project',
+                    root,
+                    '--to',
+                    'C/B',
+                    ...(api ? ['--from', 'C/B', '--de', 'A'] : ['--file', source]),
+                    '--skip-empty-lines',
+                    '--no-backup-before-import',
+                ]),
+                0,
+            );
+            assert.deepEqual(
+                effects.filter(({ type }) => type === 'upload').flatMap(({ body }) => body.items),
+                [api ? { id: 'backup' } : { id: '1', value: ' exact ' }],
+            );
+        });
+    }
+
+    for (const byDe of [true, false]) {
         for (const clear of [true, false]) {
             it(`rejects malformed final DE before effects (${byDe ? '--de' : '--file'}, clear=${clear})`, async (t) => {
                 const { root, directory } = await importProject();

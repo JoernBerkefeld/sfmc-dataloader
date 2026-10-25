@@ -273,6 +273,86 @@ describe('crossBuImport — streaming multipart snapshots', () => {
 });
 
 describe('crossBuImport — global preparation', () => {
+    for (const contents of [' \t \n\n', 'id,value\n\n \t \n', 'id,value\n\n2,bad,extra\n']) {
+        it(`skip policy rejects later empty/invalid DE before backups/snapshots/mutation (${JSON.stringify(contents)})`, async (t) => {
+            const root = await createFixtureRoot('cbi-policy-gate-');
+            const first = path.join(root, 'A.mcdata.csv');
+            const last = path.join(root, 'Z.mcdata.csv');
+            await fs.writeFile(first, 'id,value\n\n1,ok\n');
+            await fs.writeFile(last, contents);
+            const effects = captureCrossBu(t);
+            await assert.rejects(
+                crossBuImport(
+                    importOptions(root, {
+                        filePaths: [first, last],
+                        skipEmptyLines: true,
+                        backupBeforeImport: true,
+                    }),
+                ),
+                /no data rows|Row length|columns|fields/,
+            );
+            assert.deepEqual(effects, []);
+            assert.deepEqual(
+                (await fs.readdir(root)).toSorted((a, b) => a.localeCompare(b)),
+                ['.fixture-owner', 'A.mcdata.csv', 'Z.mcdata.csv'],
+            );
+        });
+    }
+    for (const format of ['csv', 'tsv', 'json']) {
+        for (const skipEmptyLines of [undefined, false, true, 'true']) {
+            it(`keeps snapshots and every upload on the same ${format} policy (${skipEmptyLines})`, async (t) => {
+                const root = await createFixtureRoot('cbi-policy-values-');
+                const paths = [1, 2].map((part) =>
+                    path.join(root, `A.mcdata.part${part}.${format}`),
+                );
+                const delimiter = format === 'tsv' ? '\t' : ',';
+                const rows = [
+                    { id: '', value: '' },
+                    { id: '1', value: ` exact${delimiter}\nvalue ` },
+                    { id: '', value: '' },
+                    { id: ' ', value: '"literal"' },
+                ];
+                await fs.writeFile(
+                    paths[0],
+                    format === 'json'
+                        ? JSON.stringify([rows[0]])
+                        : `\u{FEFF}id${delimiter}value\n\n""${delimiter}""\n`,
+                );
+                await fs.writeFile(
+                    paths[1],
+                    format === 'json'
+                        ? JSON.stringify(rows.slice(1))
+                        : `\u{FEFF}   \n1${delimiter}" exact${delimiter}\nvalue "\n${delimiter}\n" "${delimiter}"""literal"""\n\n`,
+                );
+                const effects = captureCrossBu(t);
+                const operation = crossBuImport(
+                    importOptions(root, { filePaths: paths, skipEmptyLines, format: 'json' }),
+                );
+                if (format !== 'json' && skipEmptyLines !== true) {
+                    await assert.rejects(operation, /Row length|columns|fields/);
+                    assert.deepEqual(effects, []);
+                    await assert.rejects(fs.stat(path.join(root, 'data')), { code: 'ENOENT' });
+                    return;
+                }
+                assert.equal(await operation, false);
+                const uploads = effects.filter(({ type }) => type === 'upload');
+                assert.equal(uploads.length, 2);
+                for (const upload of uploads) {
+                    assert.deepEqual(upload.body.items, rows);
+                }
+                for (const bu of ['QA', 'Prod']) {
+                    const directory = path.join(root, 'data', 'MyCred', bu);
+                    const files = await fs.readdir(directory);
+                    assert.equal(files.length, 1);
+                    assert.deepEqual(
+                        await readRowsFromFile(path.join(directory, files[0]), 'json'),
+                        rows,
+                    );
+                }
+            });
+        }
+    }
+
     it('rejects relative and filesystem-root OS temp paths before staging', async (t) => {
         const effects = captureCrossBu(t);
         for (const temporaryDirectory of ['relative-temp', path.parse(process.cwd()).root]) {

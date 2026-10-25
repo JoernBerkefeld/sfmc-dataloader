@@ -48,6 +48,20 @@ describe('mcdata CLI', () => {
         assert.ok(r.stdout.includes('./logs/data/'), 'help should mention log directory');
     });
 
+    it('accepts opt-in blank skipping and documents its import-only default', () => {
+        const r = spawnSync(process.execPath, [bin, 'import', '--skip-empty-lines', '--help'], {
+            encoding: 'utf8',
+        });
+        assert.equal(r.status, 0);
+        assert.match(r.stdout, /--skip-empty-lines\s+Import only:.*default: false/);
+        const invalid = spawnSync(
+            process.execPath,
+            [bin, 'import', '--skip-empty-lines=true', '--help'],
+            { encoding: 'utf8' },
+        );
+        assert.notEqual(invalid.status, 0);
+    });
+
     it('help mentions --max-rows-per-file', () => {
         const r = spawnSync(process.execPath, [bin, '-h'], { encoding: 'utf8' });
         assert.equal(r.status, 0);

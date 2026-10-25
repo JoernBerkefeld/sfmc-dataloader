@@ -399,6 +399,48 @@ describe('importRowsStreamingForDe', () => {
 });
 
 describe('importFromFile', () => {
+    for (const format of ['csv', 'tsv', 'json']) {
+        for (const skipEmptyLines of [undefined, false, true, 'true']) {
+            it(`uses strict opt-in policy and exact values (${format}, ${skipEmptyLines})`, async () => {
+                const root = await createFixtureRoot('mcdata-file-policy-');
+                const filePath = path.join(root, `source.${format}`);
+                const delimiter = format === 'tsv' ? '\t' : ',';
+                const rows = [
+                    { id: '', value: '' },
+                    { id: '1', value: ` snow${delimiter}\nline ` },
+                ];
+                await fs.writeFile(
+                    filePath,
+                    format === 'json'
+                        ? JSON.stringify(rows)
+                        : `\u{FEFF}id${delimiter}value\n   \n""${delimiter}""\n1${delimiter}" snow${delimiter}\nline "\n\n`,
+                );
+                const submitted = [];
+                const sdk = {
+                    rest: {
+                        put: async (_route, body) => {
+                            submitted.push(...body.items);
+                            return {};
+                        },
+                    },
+                };
+                const operation = importFromFile(sdk, {
+                    filePath,
+                    deKey: 'K',
+                    mode: 'upsert',
+                    skipEmptyLines,
+                });
+                if (format === 'json' || skipEmptyLines === true) {
+                    assert.equal((await operation).count, 2);
+                    assert.deepEqual(submitted, rows);
+                } else {
+                    await assert.rejects(operation, /Row length|columns|fields/);
+                    assert.deepEqual(submitted, []);
+                }
+            });
+        }
+    }
+
     let temporary;
     before(async () => {
         temporary = await createFixtureRoot('mcdata-import-');
@@ -442,6 +484,22 @@ describe('importFromFile', () => {
                 Object.fromEntries(headers.map((header, index) => [header, values[index]])),
                 Object.fromEntries(headers.map((header, index) => [header, next[index]])),
             ]);
+        });
+    }
+
+    for (const contents of ['   \n\n', 'id,value\n   \n\n']) {
+        it(`rejects opt-in skipped-only file without upload (${JSON.stringify(contents)})`, async () => {
+            const filePath = path.join(temporary, 'skipped-only.csv');
+            await fs.writeFile(filePath, contents);
+            await assert.rejects(
+                importFromFile(stubSdk, {
+                    filePath,
+                    deKey: 'K',
+                    mode: 'upsert',
+                    skipEmptyLines: true,
+                }),
+                /no data rows/,
+            );
         });
     }
 
