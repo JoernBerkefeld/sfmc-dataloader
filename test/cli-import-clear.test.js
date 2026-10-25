@@ -333,7 +333,7 @@ describe('CLI whole-invocation file gate', () => {
         assert.match(
             // eslint-disable-next-line no-console -- Inspect captured upload progress.
             console.log.mock.calls.map((call) => call.arguments[0]).join('\n'),
-            /Uploading batch 1 of 1/,
+            /Uploading batch 1\b/,
         );
     });
 });

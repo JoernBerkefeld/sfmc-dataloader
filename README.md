@@ -107,7 +107,7 @@ Before the first CLEAR or upload, a single-BU CLI import resolves and validates 
 
 - CSV/TSV files are scanned to the end with strict quote and column-count checks; duplicate column headers are rejected. A leading UTF-8 BOM is handled before quoted headers or continuation data. CSV syntax quotes are decoded without stripping literal quotes from headers or values; empty cells, Unicode, quoted separators and multiline values are preserved as strings.
 - Selected multipart runs must start at `part1`, have contiguous, unique part numbers, and not mix numbered and unnumbered files. Every selected part must be readable. The first part supplies headers; later parts contain data only. A header-only first part is valid when later parts contain rows; a complete set with no data rows is rejected.
-- Validation supplies the headers and total record count used for streaming import and batch progress, avoiding a separate recount scan. CSV/TSV preflight does not retain all rows in memory. JSON inputs retain support for a row array or `{ "items": [...] }` and must also contain data.
+- Validation supplies the headers and total record count used for streaming import, avoiding a separate recount scan. CSV/TSV preflight does not retain all rows in memory. JSON inputs retain support for a row array or `{ "items": [...] }` and must also contain data.
 
 Keep selected source files unchanged until the import finishes: preflight is not a snapshot or a lock against external edits. Backups are checked against the selected sources so the job cannot overwrite its own inputs, including through aliases or hard links. Cross-BU imports prepare all required target snapshots before the first target mutation, preserve logical records when converting multipart sources, and refuse to overwrite existing backup/snapshot destinations.
 
@@ -116,6 +116,8 @@ Preflight prevents known input/preparation failures from causing CLEAR or upload
 #### Payload sizing and synthetic benchmark
 
 Payload chunks retain row order and respect both the 2,500-row cap and the 5,500,000-byte UTF-8 JSON budget; a single oversized row is kept alone. Plain JSON data is sized incrementally rather than repeatedly serializing growing prefixes. Programmatic inputs with accessors, custom prototypes, `toJSON`, proxies or unsupported JSON values retain the compatibility path and its serialization behavior.
+
+Streaming imports flush their input window on the serialized byte budget or row limit and await each submission before consuming more input. Buffered serialized content is bounded by the budget plus one lookahead or oversized row, not a JavaScript heap cap. Progress reports numbered windows without an exact total because wide rows can add windows. Individual JSON input files are still parsed in full, so their memory use depends on the largest input part.
 
 From a source checkout, run `npm run benchmark:batch --no-workspaces` to compare synthetic narrow, wide and Unicode rows at 250, 1,000 and 2,500 rows. Each case uses a fresh Node process and reports input bytes, chunk sizes, elapsed sizing time and process-lifetime peak RSS (KiB). Use the same Node version and machine for before/after comparisons; these are diagnostic measurements, not CI timing thresholds. No credentials, customer fixtures or API calls are used.
 

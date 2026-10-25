@@ -4,6 +4,8 @@ import fs from 'node:fs/promises';
 import { createFixtureRoot } from './fixture-root.js';
 import path from 'node:path';
 import { RestError } from 'sfmc-sdk/util';
+import { log } from '../lib/log.mjs';
+import { DEFAULT_MAX_BODY_BYTES } from '../lib/batch.mjs';
 import {
     importRowsForDe,
     importRowsStreamingForDe,
@@ -112,6 +114,144 @@ describe('importRowsForDe', () => {
 });
 
 describe('importRowsStreamingForDe', () => {
+    for (const delta of [0, -1]) {
+        it(`honors exact UTF-8 envelope boundaries (budget delta ${delta})`, async () => {
+            const rows = [{ value: String.raw`😀é\"` }, { value: '中' }, { value: 'last' }];
+            const budget = Buffer.byteLength(JSON.stringify({ items: rows.slice(0, 2) })) + delta;
+            const submitted = [];
+            const messages = [];
+            const originalInfo = log.info;
+            log.info = (message) => {
+                messages.push(message);
+            };
+            try {
+                const result = await importRowsStreamingForDe(
+                    {
+                        rest: {
+                            put: async (_route, body) => {
+                                submitted.push(body.items);
+                                return {};
+                            },
+                        },
+                    },
+                    {
+                        deKey: 'K',
+                        mode: 'upsert',
+                        rowSource: rows,
+                        maxBytesPerBatch: budget,
+                        totalMemoryBatches: 1,
+                    },
+                );
+                assert.equal(result.count, rows.length);
+                assert.deepEqual(submitted.flat(), rows);
+                assert.equal(submitted[0].length, delta === 0 ? 2 : 1);
+                assert.ok(
+                    submitted.every(
+                        (items) => Buffer.byteLength(JSON.stringify({ items })) <= budget,
+                    ),
+                );
+                assert.deepEqual(
+                    messages,
+                    submitted.map((_, index) => `Uploading batch ${index + 1}`),
+                );
+            } finally {
+                log.info = originalInfo;
+            }
+        });
+    }
+
+    it('pauses wide-row consumption while each sequential SDK request is deferred', async () => {
+        let consumed = 0;
+        let isClosed = false;
+        async function* source() {
+            try {
+                for (let id = 0; id < 8; id++) {
+                    consumed++;
+                    yield { id, value: 'x'.repeat(2_000_000) };
+                }
+            } finally {
+                isClosed = true;
+            }
+        }
+        const calls = [];
+        const gates = [];
+        let nextStarted = Promise.withResolvers();
+        const put = async (_route, body) => {
+            calls.push(body.items.map((row) => row.id));
+            assert.ok(Buffer.byteLength(JSON.stringify(body)) <= DEFAULT_MAX_BODY_BYTES);
+            const gate = Promise.withResolvers();
+            gates.push(gate);
+            nextStarted.resolve();
+            return gate.promise;
+        };
+        const result = importRowsStreamingForDe(
+            { rest: { put } },
+            {
+                deKey: 'K',
+                mode: 'upsert',
+                rowSource: source(),
+                totalMemoryBatches: 1,
+            },
+        );
+        await nextStarted.promise;
+        assert.equal(consumed, 3, 'two buffered rows and one lookahead, not 2,500 rows');
+        assert.equal(calls.length, 1);
+        nextStarted = Promise.withResolvers();
+        gates[0].resolve({ requestId: 'accepted-wide' });
+        await nextStarted.promise;
+        assert.equal(consumed, 5);
+        assert.deepEqual(calls, [
+            [0, 1],
+            [2, 3],
+        ]);
+        gates[1].reject(new Error('wide submission failure'));
+        await assert.rejects(result, (error) => {
+            assert.deepEqual(error.importSubmission, {
+                acceptedRows: 2,
+                acceptedRequests: 1,
+                requestIds: ['accepted-wide'],
+            });
+            return true;
+        });
+        assert.equal(consumed, 5);
+        assert.equal(isClosed, true);
+    });
+
+    it('keeps oversized rows alone and preserves order across byte and row flushes', async () => {
+        const rows = [
+            { id: 0 },
+            { id: 1, value: 'x'.repeat(100) },
+            { id: 2 },
+            { id: 3 },
+            { id: 4 },
+        ];
+        const submitted = [];
+        const result = await importRowsStreamingForDe(
+            {
+                rest: {
+                    post: async (_route, body) => {
+                        submitted.push(body.items);
+                        return { requestId: String(submitted.length) };
+                    },
+                },
+            },
+            {
+                deKey: 'K',
+                mode: 'insert',
+                rowSource: rows,
+                maxRowsPerBatch: 2,
+                maxBytesPerBatch: 40,
+            },
+        );
+        assert.deepEqual(
+            submitted.map((items) => items.map((row) => row.id)),
+            [[0], [1], [2, 3], [4]],
+        );
+        assert.deepEqual(submitted.flat(), rows);
+        assert.equal(result.count, 5);
+        assert.deepEqual(result.requestIds, ['1', '2', '3', '4']);
+    });
+
     it('posts insert payloads from an async row source', async () => {
         const posts = [];
         const sdk = {
