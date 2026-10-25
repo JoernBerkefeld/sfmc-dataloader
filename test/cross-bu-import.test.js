@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { registerHooks } from 'node:module';
+import { registerHooks, syncBuiltinESMExports } from 'node:module';
+import nodeFs from 'node:fs';
+import { Writable } from 'node:stream';
+import { setImmediate as immediate } from 'node:timers/promises';
 import { readRowsFromFile } from '../lib/read-rows.mjs';
 
 const sdkModule = `export default class SDK { constructor(auth) { return globalThis.__crossBuSdk(auth); } }`;
@@ -97,6 +100,177 @@ function importOptions(projectRoot, extra = {}) {
         ...extra,
     };
 }
+
+describe('crossBuImport — streaming multipart snapshots', () => {
+    for (const [inputFormat, format] of [
+        ['json', 'json'],
+        ['csv', 'json'],
+        ['json', 'csv'],
+        ['json', 'tsv'],
+    ]) {
+        it(`streams multipart ${inputFormat} to exact ${format} snapshots before ordered fan-out`, async (t) => {
+            const root = await createFixtureRoot('cbi-stream-conversion-');
+            const rows = [
+                { id: '1', value: '雪,"quoted"\nline' },
+                { id: '2', value: 'second\tvalue' },
+            ];
+            const paths = [1, 2].map((part) =>
+                path.join(root, `A.mcdata.part${part}.${inputFormat}`),
+            );
+            await fs.writeFile(
+                paths[0],
+                inputFormat === 'json'
+                    ? JSON.stringify([rows[0]])
+                    : 'id,value\n1,"雪,""quoted""\nline"\n',
+            );
+            await fs.writeFile(
+                paths[1],
+                inputFormat === 'json' ? JSON.stringify({ items: [rows[1]] }) : '2,second\tvalue\n',
+            );
+            const effects = captureCrossBu(t, undefined, {
+                clear: async () => {
+                    for (const bu of ['QA', 'Prod']) {
+                        const directory = path.join(root, 'data', 'MyCred', bu);
+                        const files = await fs.readdir(directory);
+                        assert.equal(files.length, 1);
+                        const snapshot = path.join(directory, files[0]);
+                        assert.deepEqual(await readRowsFromFile(snapshot, format), rows);
+                        if (format === 'json') {
+                            assert.equal(
+                                await fs.readFile(snapshot, 'utf8'),
+                                JSON.stringify(rows) + '\n',
+                            );
+                        } else {
+                            const bytes = await fs.readFile(snapshot, 'utf8');
+                            assert.ok(
+                                bytes.startsWith(
+                                    format === 'csv'
+                                        ? '\u{FEFF}"id","value"\n'
+                                        : '\u{FEFF}id\tvalue\n',
+                                ),
+                            );
+                        }
+                    }
+                },
+            });
+            await crossBuImport(importOptions(root, { filePaths: paths.toReversed(), format }));
+            assert.deepEqual(
+                effects.map(({ type, mid }) => [type, mid]),
+                [
+                    ['clear', 222],
+                    ['upload', 222],
+                    ['clear', 333],
+                    ['upload', 333],
+                ],
+            );
+            for (const effect of effects) {
+                if (effect.type === 'upload') {
+                    assert.deepEqual(effect.body.items, rows);
+                }
+            }
+        });
+    }
+
+    it('pauses multipart JSON production behind a slow snapshot writer and awaits final flush', async (t) => {
+        const root = await createFixtureRoot('cbi-stream-slow-');
+        const paths = [1, 2].map((part) => path.join(root, `A.mcdata.part${part}.json`));
+        const rows = Array.from({ length: 100 }, (_, id) => ({ id, value: 'x'.repeat(2000) }));
+        for (const file of paths) {
+            await fs.writeFile(file, JSON.stringify(rows));
+        }
+        const effects = captureCrossBu(t);
+        const readFile = fs.readFile.bind(fs);
+        let secondReads = 0;
+        t.mock.method(fs, 'readFile', async (...arguments_) => {
+            if (arguments_[0] === paths[1]) {
+                secondReads++;
+            }
+            return readFile(...arguments_);
+        });
+        let release;
+        let finalize;
+        const chunks = [];
+        const writer = new Writable({
+            highWaterMark: 1,
+            write(chunk, _encoding, callback) {
+                chunks.push(chunk.toString());
+                if (release) {
+                    callback();
+                } else {
+                    release = callback;
+                }
+            },
+            final(callback) {
+                finalize = callback;
+            },
+        });
+        t.mock.method(nodeFs, 'createWriteStream', (_destination, options) => {
+            assert.equal(options.flags, 'wx');
+            return writer;
+        });
+        syncBuiltinESMExports();
+        t.after(() => {
+            t.mock.restoreAll();
+            syncBuiltinESMExports();
+        });
+        const importing = crossBuImport(
+            importOptions(root, {
+                filePaths: paths,
+                format: 'json',
+                targets: [{ credential: 'MyCred', bu: 'QA' }],
+            }),
+        );
+        while (!release) {
+            await immediate();
+        }
+        // Preflight reads both files; streaming has not reached the second part again.
+        await immediate();
+        assert.equal(secondReads, 1);
+        assert.deepEqual(effects, []);
+        release();
+        while (!finalize) {
+            await immediate();
+        }
+        assert.deepEqual(effects, []);
+        finalize();
+        await importing;
+        assert.equal(chunks.join(''), JSON.stringify([...rows, ...rows]) + '\n');
+        assert.equal(secondReads, 3); // Preflight, snapshot, upload.
+    });
+
+    for (const format of ['json', 'csv', 'tsv']) {
+        it(`rejects later ${format} snapshot final-flush failure before any target mutation`, async (t) => {
+            const root = await createFixtureRoot('cbi-stream-fail-');
+            const source = path.join(root, 'A.mcdata.json');
+            await fs.writeFile(source, '[{"id":"1"}]');
+            const effects = captureCrossBu(t);
+            let writers = 0;
+            t.mock.method(nodeFs, 'createWriteStream', (_destination, options) => {
+                assert.equal(options.flags, 'wx');
+                const isFail = ++writers === 2;
+                return new Writable({
+                    write(_chunk, _encoding, callback) {
+                        callback();
+                    },
+                    final(callback) {
+                        callback(isFail ? new Error('synthetic final-flush failure') : null);
+                    },
+                });
+            });
+            syncBuiltinESMExports();
+            t.after(() => {
+                t.mock.restoreAll();
+                syncBuiltinESMExports();
+            });
+            await assert.rejects(
+                crossBuImport(importOptions(root, { filePaths: [source], format })),
+                /synthetic final-flush failure/u,
+            );
+            assert.equal(writers, 2);
+            assert.deepEqual(effects, []);
+        });
+    }
+});
 
 describe('crossBuImport — global preparation', () => {
     it('rejects relative and filesystem-root OS temp paths before staging', async (t) => {

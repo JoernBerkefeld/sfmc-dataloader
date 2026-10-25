@@ -134,7 +134,7 @@ Use `--from` (one source) and `--to` (repeatable targets) for a cross-BU import 
 mcdata import --from MyCred/Dev --to MyCred/QA --to MyCred/Prod --de Contact_DE
 ```
 
-An optional pre-import backup exports current target BU data as **timestamped** files (backup filenames always include the timestamp, regardless of `--git`). Use `--backup-before-import` to run the backup without a prompt (CI-safe), or `--no-backup-before-import` to skip it entirely. When neither flag is provided the CLI prompts interactively (TTY only). A snapshot file is also written to each target BU's data directory as a record of what was imported.
+An optional pre-import backup exports current target BU data as **timestamped** files (backup filenames always include the timestamp, regardless of `--git`). Use `--backup-before-import` to run the backup without a prompt (CI-safe), or `--no-backup-before-import` to skip it entirely. When neither flag is provided the CLI prompts interactively (TTY only). A snapshot file is also written to each target BU's data directory as a record of what was imported. Cross-BU snapshots stream JSON, CSV, and TSV output with backpressure, including format conversions; multipart uploads iterate parts in order instead of collecting the complete set. All target snapshots must finish successfully before any target CLEAR or upload. Each individual JSON input part is still parsed in full (no incremental JSON parser).
 
 ### Import — local export files into multiple target BUs (file mode)
 
