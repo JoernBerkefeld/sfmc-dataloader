@@ -149,6 +149,92 @@ describe('CLI async completion propagation', () => {
     }
 });
 
+describe('CLI plain CSV and cleanup safety', () => {
+    for (const cross of [false, true]) {
+        for (const failure of [false, 'collision', 'late-padding', 'flags']) {
+            it(`preflights explicit plain CSV and cleanup before effects (${cross}, ${failure})`, async (t) => {
+                const { root, directory } = await importProject();
+                const first = path.join(directory, 'Customer.List.csv');
+                const last = path.join(
+                    directory,
+                    failure === 'collision' ? 'Customer.List.mcdata.csv' : 'Z.csv',
+                );
+                await fs.writeFile(first, 'id,value,,\n1,one,,\n,,,\n');
+                await fs.writeFile(
+                    last,
+                    failure === 'late-padding'
+                        ? 'id,value,,\n2,two,hidden,\n'
+                        : 'id,value,,\n2,two,,\n,,,\n',
+                );
+                const effects = captureSdk(t);
+                const selection = ['--file', first, '--file', last, '--backup-before-import'];
+                if (failure === 'flags') {
+                    selection.push('--skip-empty-lines', '--no-skip-empty-lines');
+                }
+                const arguments_ = cross
+                    ? [
+                          'node',
+                          'mcdata',
+                          'import',
+                          '--project',
+                          root,
+                          '--to',
+                          'C/B',
+                          ...selection,
+                          '--clear-before-import',
+                          '--i-accept-clear-data-risk',
+                      ]
+                    : argv(root, selection, true);
+                if (cross && failure && failure !== 'flags') {
+                    await assert.rejects(main(arguments_), /Duplicate unnumbered|padding/);
+                } else {
+                    assert.equal(await main(arguments_), failure ? 1 : 0);
+                }
+                if (failure) {
+                    assert.deepEqual(effects, []);
+                } else {
+                    const uploads = effects.filter(({ type }) => type === 'upload');
+                    assert.deepEqual(
+                        uploads.map(({ body }) => body.items),
+                        [[{ id: '1', value: 'one' }], [{ id: '2', value: 'two' }]],
+                    );
+                    assert.ok(uploads[0].route.includes('Customer.List'));
+                }
+            });
+        }
+    }
+    it('defaults skipping on and preserves interior empty rows with the negative flag', async (t) => {
+        const { root, directory } = await importProject();
+        const file = path.join(directory, 'Customers.part1.CSV');
+        await fs.writeFile(file, 'id,value\n1,first\n,\n2,last\n,\n');
+        const effects = captureSdk(t);
+        for (const [flags, expected] of [
+            [
+                [],
+                [
+                    { id: '1', value: 'first' },
+                    { id: '2', value: 'last' },
+                ],
+            ],
+            [
+                ['--no-skip-empty-lines'],
+                [
+                    { id: '1', value: 'first' },
+                    { id: '', value: '' },
+                    { id: '2', value: 'last' },
+                ],
+            ],
+        ]) {
+            effects.length = 0;
+            assert.equal(await main(argv(root, ['--file', file, ...flags])), 0);
+            assert.deepEqual(
+                effects.filter(({ type }) => type === 'upload').flatMap(({ body }) => body.items),
+                expected,
+            );
+        }
+    });
+});
+
 describe('CLI explicit export selection', () => {
     for (const cross of [false, true]) {
         for (const otherName of [
@@ -284,14 +370,17 @@ describe('CLI whole-invocation file gate', () => {
                         ? ['--de', 'A']
                         : paths.flatMap((file) => ['--file', file]);
                     const result = await main(
-                        argv(root, [...selection, ...(enabled ? ['--skip-empty-lines'] : [])]),
+                        argv(root, [
+                            ...selection,
+                            enabled ? '--skip-empty-lines' : '--no-skip-empty-lines',
+                        ]),
                     );
                     assert.equal(result, enabled || format === 'json' ? 0 : 1);
                     assert.deepEqual(
                         effects
                             .filter(({ type }) => type === 'upload')
                             .flatMap(({ body }) => body.items),
-                        enabled || format === 'json' ? rows : [],
+                        format === 'json' ? rows : enabled ? [rows[1], rows[3]] : [],
                     );
                 });
             }

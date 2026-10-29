@@ -440,17 +440,18 @@ describe('crossBuImport — global preparation', () => {
                 const operation = crossBuImport(
                     importOptions(root, { filePaths: paths, skipEmptyLines, format: 'json' }),
                 );
-                if (format !== 'json' && skipEmptyLines !== true) {
-                    await assert.rejects(operation, /Row length|columns|fields/);
+                if (format !== 'json' && skipEmptyLines !== true && skipEmptyLines !== undefined) {
+                    await assert.rejects(operation, /Row length|columns|fields|boolean/);
                     assert.deepEqual(effects, []);
                     await assert.rejects(fs.stat(path.join(root, 'data')), { code: 'ENOENT' });
                     return;
                 }
                 assert.equal(await operation, false);
+                const expected = format === 'json' ? rows : [rows[1], rows[3]];
                 const uploads = effects.filter(({ type }) => type === 'upload');
                 assert.equal(uploads.length, 2);
                 for (const upload of uploads) {
-                    assert.deepEqual(upload.body.items, rows);
+                    assert.deepEqual(upload.body.items, expected);
                 }
                 for (const bu of ['QA', 'Prod']) {
                     const directory = path.join(root, 'data', 'MyCred', bu);
@@ -458,7 +459,7 @@ describe('crossBuImport — global preparation', () => {
                     assert.equal(files.length, 1);
                     assert.deepEqual(
                         await readRowsFromFile(path.join(directory, files[0]), 'json'),
-                        rows,
+                        expected,
                     );
                 }
             });

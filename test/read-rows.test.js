@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it, before } from 'node:test';
 import { Readable } from 'node:stream';
 import csv from '@joern.berkefeld/csv-parser';
+import { log } from '../lib/log.mjs';
 import fs from 'node:fs/promises';
 import { createFixtureRoot } from './fixture-root.js';
 import path from 'node:path';
@@ -138,13 +139,14 @@ describe('strict fork regressions', () => {
             await fs.writeFile(second, `1${separator}2\n`);
             const paths = [first, second];
             const metadata = await preflightImportPaths(paths, format);
-            assert.deepEqual(metadata, {
-                paths,
-                format,
-                headers: ['a', 'b'],
-                recordCount: 1,
-                skipEmptyLines: false,
-            });
+            assert.deepEqual(metadata.paths, paths);
+            assert.equal(metadata.format, format);
+            assert.deepEqual(metadata.headers, ['a', 'b']);
+            assert.equal(metadata.recordCount, 1);
+            assert.equal(metadata.skipEmptyLines, true);
+            assert.deepEqual(metadata.physicalHeaders, ['a', 'b']);
+            assert.equal(metadata.retainedWidth, 2);
+            assert.ok(Object.isFrozen(metadata.validation));
             assert.ok(
                 Object.isFrozen(metadata) &&
                     Object.isFrozen(metadata.headers) &&
@@ -215,7 +217,7 @@ describe('strict fork regressions', () => {
     });
 });
 
-describe('opt-in empty-line reader options', () => {
+describe('default-on empty-record reader options', () => {
     let temporary;
     before(async () => {
         temporary = await createFixtureRoot('mcdata-empty-lines-');
@@ -229,6 +231,7 @@ describe('opt-in empty-line reader options', () => {
                 ['001', `var label = "demo";${separator}Δ`, ''],
                 ['', 'line\n\n  \nnext', ''],
                 ['', '', ''],
+                ['last', 'retained', ''],
             ];
             await fs.writeFile(
                 file,
@@ -239,22 +242,24 @@ describe('opt-in empty-line reader options', () => {
                 Object.fromEntries(headers.map((header, index) => [header, row[index]])),
             );
             for (const options of [{}, { skipEmptyLines: false }, { skipEmptyLines: true }]) {
+                const effective = options.skipEmptyLines ?? true;
+                const retained = effective ? expected.filter((_, index) => index !== 2) : expected;
                 const metadata = await preflightImportPaths([file], format, options);
-                assert.equal(metadata.recordCount, expected.length);
-                assert.equal(metadata.skipEmptyLines, options.skipEmptyLines === true);
+                assert.equal(metadata.recordCount, retained.length);
+                assert.equal(metadata.skipEmptyLines, effective);
                 assert.deepEqual(metadata.headers, headers);
-                assert.deepEqual(await readRowsFromFile(file, format, options), expected);
+                assert.deepEqual(await readRowsFromFile(file, format, options), retained);
                 assert.deepEqual(
                     await collectAsync(streamRowsFromFile(file, format, options)),
-                    expected,
+                    retained,
                 );
                 assert.deepEqual(
                     await readRowsFromImportPaths([file], format, undefined, options),
-                    expected,
+                    retained,
                 );
                 assert.equal(
                     await countDataRowsFromImportPaths([file], format, undefined, options),
-                    expected.length,
+                    retained.length,
                 );
             }
         });
@@ -273,7 +278,6 @@ describe('opt-in empty-line reader options', () => {
             assert.ok(Object.isFrozen(metadata));
             assert.equal(metadata.skipEmptyLines, true);
             const expected = [
-                { value: '' },
                 { value: ' '.repeat(3) },
                 { value: 'line\n\n  \nnext' },
                 { value: 'first continuation' },
@@ -300,16 +304,16 @@ describe('opt-in empty-line reader options', () => {
                     columnHeaders: ['value'],
                     skipEmptyLines: true,
                 }),
-                expected.slice(3),
+                expected.slice(2),
             );
             // Default strict parsing still rejects zero-cell blank records.
-            for (const defaults of [{}, { skipEmptyLines: false }]) {
+            for (const defaults of [{ skipEmptyLines: false }]) {
                 await assert.rejects(preflightImportPaths(paths, format, defaults));
                 await assert.rejects(readRowsFromImportPaths(paths, format, undefined, defaults));
                 await assert.rejects(readRowsFromFile(first, format, defaults));
             }
             await fs.writeFile(first, 'value\n   \nretained');
-            const legacy = await preflightImportPaths([first], format);
+            const legacy = await preflightImportPaths([first], format, { skipEmptyLines: false });
             assert.deepEqual(
                 await readRowsFromImportPaths([first], format, legacy, { skipEmptyLines: true }),
                 [{ value: ' '.repeat(3) }, { value: 'retained' }],
@@ -319,8 +323,8 @@ describe('opt-in empty-line reader options', () => {
             const file = path.join(temporary, `width.${format}`);
             const options = { skipEmptyLines: true };
             await fs.writeFile(file, `a${separator}b\n\n \n${separator}\n`);
-            assert.deepEqual(await readRowsFromFile(file, format, options), [{ a: '', b: '' }]);
-            assert.equal((await preflightImportPaths([file], format, options)).recordCount, 1);
+            assert.deepEqual(await readRowsFromFile(file, format, options), []);
+            await assert.rejects(preflightImportPaths([file], format, options), /no data rows/);
             for (const text of [
                 `value\n${separator}\n`,
                 `a${separator}b\n${`1${separator}2\n`.repeat(100)}\n \nlate\n`,
@@ -348,6 +352,17 @@ describe('opt-in empty-line reader options', () => {
             await fs.rename(file, file + '.closed');
         });
     }
+    it('rejects invalid delimited policy values instead of coercing them', async () => {
+        const file = path.join(temporary, 'invalid-policy.csv');
+        await fs.writeFile(file, 'id\n1\n');
+        for (const skipEmptyLines of [null, 'true', 0]) {
+            await assert.rejects(
+                preflightImportPaths([file], 'csv', { skipEmptyLines }),
+                /boolean/,
+            );
+            await assert.rejects(readRowsFromFile(file, 'csv', { skipEmptyLines }), /boolean/);
+        }
+    });
     it('leaves JSON rows and counts unchanged', async () => {
         const file = path.join(temporary, 'unchanged.json');
         const expected = [{ value: '' }, { value: '  ' }];
@@ -363,6 +378,91 @@ describe('opt-in empty-line reader options', () => {
             expected,
         );
     });
+});
+
+describe('automatic logical-file cleanup', () => {
+    it('logs cleanup once per successful preflight, not again for count/replay', async (t) => {
+        const root = await createFixtureRoot('mcdata-cleanup-log-');
+        const file = path.join(root, 'source.csv');
+        await fs.writeFile(file, 'id,\n1,\n,\n');
+        const messages = [];
+        t.mock.method(log, 'info', (message) => {
+            messages.push(message);
+        });
+        const metadata = await preflightImportPaths([file], 'csv', { skipEmptyLines: false });
+        await countDataRowsFromImportPaths([file], 'csv', metadata);
+        await readRowsFromImportPaths([file], 'csv', metadata);
+        assert.equal(messages.length, 1);
+        assert.match(messages[0], /removed 1 padding columns, 1 trailing records; skipped 0/);
+        await fs.writeFile(file, 'id,\n1,hidden\n');
+        await assert.rejects(preflightImportPaths([file], 'csv'));
+        assert.equal(messages.length, 1);
+    });
+    for (const format of ['csv', 'tsv']) {
+        const separator = format === 'tsv' ? '\t' : ',';
+        it(`${format}: replays physical multipart schema and trims only the logical bottom`, async () => {
+            const root = await createFixtureRoot('mcdata-cleanup-');
+            const paths = [1, 2, 3].map((part) => path.join(root, `${part}.${format}`));
+            await fs.writeFile(
+                paths[0],
+                `id${separator}value${separator}${separator}\n1${separator}one${separator}${separator}\n${separator}${separator}${separator}\n`,
+            );
+            await fs.writeFile(
+                paths[1],
+                `\u{FEFF}2${separator}two${separator}${separator}\n${separator}${separator}${separator}\n`,
+            );
+            await fs.writeFile(paths[2], `${separator}${separator}${separator}\n\n`);
+            const metadata = await preflightImportPaths(paths, format, { skipEmptyLines: false });
+            const expected = [
+                { id: '1', value: 'one' },
+                { id: '', value: '' },
+                { id: '2', value: 'two' },
+            ];
+            assert.deepEqual(metadata.headers, ['id', 'value']);
+            assert.deepEqual(metadata.physicalHeaders, ['id', 'value', '', '']);
+            assert.equal(metadata.retainedWidth, 2);
+            assert.deepEqual(metadata.cleanup, {
+                removedColumns: 2,
+                removedRecords: 3,
+                skippedRecords: 0,
+            });
+            assert.deepEqual(metadata.finalRecord, { fileIndex: 1, recordNumber: 1 });
+            assert.equal(metadata.recordCount, expected.length);
+            assert.equal(await countDataRowsFromImportPaths([], 'json', metadata), expected.length);
+            assert.deepEqual(
+                await readRowsFromImportPaths([], 'json', metadata, { skipEmptyLines: true }),
+                expected,
+            );
+            await assert.rejects(
+                readRowsFromImportPaths(paths, format, structuredClone(metadata)),
+                /result from validateFiles/,
+            );
+            const skipped = await preflightImportPaths(paths, format);
+            assert.deepEqual(await readRowsFromImportPaths(paths, format, skipped), [
+                expected[0],
+                expected[2],
+            ]);
+            assert.equal(skipped.cleanup.removedColumns, 2);
+            assert.equal(skipped.cleanup.removedRecords, 0);
+            assert.equal(skipped.cleanup.skippedRecords, 4);
+        });
+        it(`${format}: rejects late padding data and interior malformed blanks before replay`, async () => {
+            const root = await createFixtureRoot('mcdata-cleanup-bad-');
+            const first = path.join(root, `first.${format}`);
+            const last = path.join(root, `last.${format}`);
+            await fs.writeFile(first, `id${separator}\n1${separator}\n`);
+            await fs.writeFile(last, `2${separator} \n`);
+            await assert.rejects(preflightImportPaths([first, last], format), /padding|column/i);
+            await fs.writeFile(first, `id${separator}value\n1${separator}ok\n\n`);
+            const trailing = await preflightImportPaths([first], format, { skipEmptyLines: false });
+            assert.equal(trailing.cleanup.removedRecords, 1);
+            await fs.writeFile(last, `2${separator}later\n`);
+            await assert.rejects(
+                preflightImportPaths([first, last], format, { skipEmptyLines: false }),
+                /Row length|columns|fields/,
+            );
+        });
+    }
 });
 
 describe('readRowsFromFile', () => {

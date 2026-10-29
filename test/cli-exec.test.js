@@ -53,7 +53,8 @@ describe('mcdata CLI', () => {
             encoding: 'utf8',
         });
         assert.equal(r.status, 0);
-        assert.match(r.stdout, /--skip-empty-lines\s+Import only:.*default: false/);
+        assert.match(r.stdout, /--skip-empty-lines\s+Skip blank\/empty-cell.*default: true/);
+        assert.match(r.stdout, /--no-skip-empty-lines\s+Preserve interior empty records/);
         const invalid = spawnSync(
             process.execPath,
             [bin, 'import', '--skip-empty-lines=true', '--help'],

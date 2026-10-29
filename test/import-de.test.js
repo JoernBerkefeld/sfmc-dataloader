@@ -430,11 +430,12 @@ describe('importFromFile', () => {
                     mode: 'upsert',
                     skipEmptyLines,
                 });
-                if (format === 'json' || skipEmptyLines === true) {
-                    assert.equal((await operation).count, 2);
-                    assert.deepEqual(submitted, rows);
+                if (format === 'json' || skipEmptyLines === undefined || skipEmptyLines === true) {
+                    const expected = format === 'json' ? rows : rows.slice(1);
+                    assert.equal((await operation).count, expected.length);
+                    assert.deepEqual(submitted, expected);
                 } else {
-                    await assert.rejects(operation, /Row length|columns|fields/);
+                    await assert.rejects(operation, /Row length|columns|fields|boolean/);
                     assert.deepEqual(submitted, []);
                 }
             });

@@ -10,6 +10,46 @@ import {
     resolveImportSet,
 } from '../lib/file-resolve.mjs';
 import { buildExportBasename } from '../lib/filename.mjs';
+import { resolveExplicitImportBasename } from '../lib/index.mjs';
+
+describe('explicit import filename policy', () => {
+    it('keeps plain CSV keys literal and legacy export precedence unchanged', () => {
+        for (const key of ['Customers', 'Customer.List', 'Customers.part1', 'encoded%2Bkey']) {
+            assert.deepEqual(resolveExplicitImportBasename(`${key}.CSV`), {
+                customerKey: key,
+                timestampPart: '',
+                ext: 'csv',
+            });
+        }
+        assert.equal(
+            resolveExplicitImportBasename('encoded%2Bkey.mcdata.csv').customerKey,
+            'encoded+key',
+        );
+        assert.equal(resolveExplicitImportBasename('Customers.mcdata.part1.csv').partNumber, 1);
+        for (const name of ['.csv', 'Customers.tsv', 'Customers.json']) {
+            assert.throws(() => resolveExplicitImportBasename(name), /Explicit import/);
+        }
+    });
+    it('accepts explicit plain CSVs but ignores them during discovery and rejects collisions', async () => {
+        const root = await createFixtureRoot('mcdata-plain-');
+        const plain = path.join(root, 'Customers.csv');
+        const legacy = path.join(root, 'Customers.mcdata.csv');
+        await fs.writeFile(plain, 'id\n1\n');
+        await fs.writeFile(legacy, 'id\n2\n');
+        assert.deepEqual((await resolveImportSet([plain], { explicitSelection: true })).paths, [
+            plain,
+        ]);
+        assert.deepEqual(await findImportCandidates(root, 'Customers'), [legacy]);
+        await assert.rejects(
+            resolveImportSet([plain, legacy], { explicitSelection: true }),
+            /Duplicate unnumbered|Ambiguous/,
+        );
+        await assert.rejects(
+            resolveImportSet([plain, plain], { explicitSelection: true }),
+            /Duplicate unnumbered/,
+        );
+    });
+});
 
 describe('formatFromExtension', () => {
     it('returns csv for .csv files', () => {
